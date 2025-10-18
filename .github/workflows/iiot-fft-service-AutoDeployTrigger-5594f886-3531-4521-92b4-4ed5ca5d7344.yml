@@ -2,28 +2,31 @@ name: Trigger auto deployment for iiot-fft-service
 
 # When this action will be executed
 on:
-  # Automatically trigger it when detected changes in repo
+  # Automatically trigger it when changes are detected in the repo
   push:
     branches: 
       [ main ]
     paths:
-    - '**'
-    - '.github/workflows/iiot-fft-service-AutoDeployTrigger-5594f886-3531-4521-92b4-4ed5ca5d7344.yml'
+      - '**'
+      - '.github/workflows/iiot-fft-service-AutoDeployTrigger.yml'
 
-  # Allow manual trigger 
+  # Allow manual trigger
   workflow_dispatch:      
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+
     permissions: 
-      id-token: write #This is required for requesting the OIDC JWT Token
-      contents: read #Required when GH token is used to authenticate with private repo
+      id-token: write   # Required for requesting the OIDC JWT Token
+      contents: read    # Required to clone the repository
 
     steps:
-      - name: Checkout to the branch
-        uses: actions/checkout@v2
+      # Checkout the code from the main branch
+      - name: Checkout source code
+        uses: actions/checkout@v4
 
+      # Log in to Azure using federated credentials (OIDC)
       - name: Azure Login
         uses: azure/login@v2
         with:
@@ -31,19 +34,28 @@ jobs:
           tenant-id: ${{ secrets.IIOTFFTSERVICE_AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.IIOTFFTSERVICE_AZURE_SUBSCRIPTION_ID }}
 
-      - name: Build and push container image to registry
+      # Build and deploy to Azure Container Apps
+      - name: Build and deploy to Azure Container Apps
         uses: azure/container-apps-deploy-action@v2
         with:
-          appSourcePath: ${{ github.workspace }}
-          _dockerfilePathKey_: _dockerfilePath_
-          _targetLabelKey_: _targetLabel_
-          registryUrl: iiotpocacr.azurecr.io
-          registryUsername: ${{ secrets.IIOTFFTSERVICE_REGISTRY_USERNAME }}
-          registryPassword: ${{ secrets.IIOTFFTSERVICE_REGISTRY_PASSWORD }}
+          # Path to your FFT service source folder
+          appSourcePath: ${{ github.workspace }}/fft_service
+          
+          # Path to your Dockerfile
+          dockerfilePath: fft_service/Dockerfile
+          
+          # Azure target details
           containerAppName: iiot-fft-service
           resourceGroup: iiot-poc-rg
+          registryUrl: iiotpocacr.azurecr.io
+          
+          # Image to build (commit SHA as tag)
           imageToBuild: iiotpocacr.azurecr.io/iiot-fft-service:${{ github.sha }}
-          _buildArgumentsKey_: |
-            _buildArgumentsValues_
-
-
+          
+          # Federated OIDC credentials (no registry username/password required)
+          azureCredentials: |
+            {
+              "clientId": "${{ secrets.IIOTFFTSERVICE_AZURE_CLIENT_ID }}",
+              "tenantId": "${{ secrets.IIOTFFTSERVICE_AZURE_TENANT_ID }}",
+              "subscriptionId": "${{ secrets.IIOTFFTSERVICE_AZURE_SUBSCRIPTION_ID }}"
+            }
