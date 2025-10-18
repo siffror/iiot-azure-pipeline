@@ -1,0 +1,49 @@
+name: Trigger auto deployment for iiot-fft-service
+
+# When this action will be executed
+on:
+  # Automatically trigger it when detected changes in repo
+  push:
+    branches: 
+      [ main ]
+    paths:
+    - '**'
+    - '.github/workflows/iiot-fft-service-AutoDeployTrigger-5594f886-3531-4521-92b4-4ed5ca5d7344.yml'
+
+  # Allow manual trigger 
+  workflow_dispatch:      
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions: 
+      id-token: write #This is required for requesting the OIDC JWT Token
+      contents: read #Required when GH token is used to authenticate with private repo
+
+    steps:
+      - name: Checkout to the branch
+        uses: actions/checkout@v2
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.IIOTFFTSERVICE_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.IIOTFFTSERVICE_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.IIOTFFTSERVICE_AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build and push container image to registry
+        uses: azure/container-apps-deploy-action@v2
+        with:
+          appSourcePath: ${{ github.workspace }}
+          _dockerfilePathKey_: _dockerfilePath_
+          _targetLabelKey_: _targetLabel_
+          registryUrl: iiotpocacr.azurecr.io
+          registryUsername: ${{ secrets.IIOTFFTSERVICE_REGISTRY_USERNAME }}
+          registryPassword: ${{ secrets.IIOTFFTSERVICE_REGISTRY_PASSWORD }}
+          containerAppName: iiot-fft-service
+          resourceGroup: iiot-poc-rg
+          imageToBuild: iiotpocacr.azurecr.io/iiot-fft-service:${{ github.sha }}
+          _buildArgumentsKey_: |
+            _buildArgumentsValues_
+
+
