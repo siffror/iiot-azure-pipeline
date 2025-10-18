@@ -1,0 +1,55 @@
+name: Build Telegraf image
+
+on:
+  push:
+    branches: [ main ]
+    # Trigger build when something changes in the telegraf folder or this workflow itself
+    paths: 
+      - 'telegraf/**'
+      - '.github/workflows/telegraf-build.yml'
+
+  # Allow manual trigger from GitHub Actions tab
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write   # Required for OIDC authentication with Azure
+      contents: read    # Allows reading repo contents during checkout
+
+    steps:
+      # Step 1: Checkout your repo
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Step 2: Login to Azure using federated credentials (OIDC)
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # Step 3: Build and push Telegraf custom image to ACR
+      - name: Build & push Telegraf to ACR
+        uses: azure/container-apps-deploy-action@v2
+        with:
+          # Path to your Telegraf folder containing Dockerfile
+          appSourcePath: ${{ github.workspace }}/telegraf
+
+          # Path to Dockerfile relative to appSourcePath
+          dockerfilePath: Dockerfile
+
+          # ACR settings
+          registryUrl: iiotpocacr.azurecr.io
+          imageToBuild: iiotpocacr.azurecr.io/telegraf-custom:${{ github.sha }}
+
+          # No username/password — uses Azure OIDC/RBAC authentication
+          azureCredentials: |
+            {
+              "clientId": "${{ secrets.AZURE_CLIENT_ID }}",
+              "tenantId": "${{ secrets.AZURE_TENANT_ID }}",
+              "subscriptionId": "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+            }
