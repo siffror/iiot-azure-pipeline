@@ -4,29 +4,28 @@ name: Trigger auto deployment for iiot-fft-service
 on:
   # Automatically trigger it when changes are detected in the repo
   push:
-    branches: 
-      [ main ]
+    branches: [ main ]
     paths:
-      - '**'
+      - 'fft_service/**'
       - '.github/workflows/iiot-fft-service-AutoDeployTrigger.yml'
 
   # Allow manual trigger
-  workflow_dispatch:      
+  workflow_dispatch:
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
-    permissions: 
+    permissions:
       id-token: write   # Required for requesting the OIDC JWT Token
       contents: read    # Required to clone the repository
 
     steps:
-      # Checkout the code from the main branch
+      # 1) Checkout the code
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      # Log in to Azure using federated credentials (OIDC)
+      # 2) Login to Azure using federated credentials (OIDC)
       - name: Azure Login
         uses: azure/login@v2
         with:
@@ -34,24 +33,24 @@ jobs:
           tenant-id: ${{ secrets.IIOTFFTSERVICE_AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.IIOTFFTSERVICE_AZURE_SUBSCRIPTION_ID }}
 
-      # Build and deploy to Azure Container Apps
+      # 3) Build image and deploy to Azure Container Apps
       - name: Build and deploy to Azure Container Apps
         uses: azure/container-apps-deploy-action@v2
         with:
           # Path to your FFT service source folder
           appSourcePath: ${{ github.workspace }}/fft_service
-          
-          # Path to your Dockerfile
-          dockerfilePath: fft_service/Dockerfile
-          
+
+          # Path to your Dockerfile relative to appSourcePath
+          dockerfilePath: Dockerfile
+
           # Azure target details
           containerAppName: iiot-fft-service
           resourceGroup: iiot-poc-rg
           registryUrl: iiotpocacr.azurecr.io
-          
+
           # Image to build (commit SHA as tag)
           imageToBuild: iiotpocacr.azurecr.io/iiot-fft-service:${{ github.sha }}
-          
+
           # Federated OIDC credentials (no registry username/password required)
           azureCredentials: |
             {
