@@ -43,18 +43,17 @@ jobs:
             --ingress internal
 
       # 🔄 Vänta tills provisioning är klar (hindrar 'operation in progress')
-      - name: Wait until app is ready
+      - name: Wait for system identity to be ready
         shell: bash
         run: |
           set -euo pipefail
-          for i in {1..60}; do
-            STATE=$(az containerapp show -g "$RG" -n "$APP" --query "properties.provisioningState" -o tsv || echo "Unknown")
-            if [ "$STATE" = "Succeeded" ] || [ "$STATE" = "Running" ]; then
-              echo "App ready (state=$STATE)"; break
+          for i in {1..30}; do
+            PID=$(az containerapp show -g "$RG" -n "$APP" --query "identity.principalId" -o tsv || true)
+            if [ -n "${PID:-}" ] && [ "$PID" != "None" ]; then
+              echo "System MI principalId: $PID"; break
             fi
-            echo "Waiting for app provisioning to finish (state=$STATE)..."
-            sleep 5
-            if [ $i -eq 60 ]; then echo "Timeout waiting for app"; exit 1; fi
+            echo "Waiting for system MI..."; sleep 5
+            if [ $i -eq 30 ]; then echo "Timeout waiting for MI"; exit 1; fi
           done
         # Allmän felsökning: vänta tills appen är klar innan uppdateringar görs. :contentReference[oaicite:2]{index=2}
 
@@ -67,15 +66,24 @@ jobs:
           az containerapp registry set -g "$RG" -n "$APP" --server "$ACR_SERVER" --identity system  # bind registry :contentReference[oaicite:4]{index=4}
 
       # 🔐 Säkerställ att KV-referensen finns i appen innan YAML valideras
-      - name: Ensure KV secret exists (iiot-telegraf)
+      - name: Ensure KV secret exists (iiot-telegraf) with retry + versionless URL
         if: ${{ vars.SECRET_SOURCE == 'kv' }}
         shell: bash
         env:
-          KV_INFLUX_TOKEN_URL: https://iiotpockv.vault.azure.net/secrets/influxdb-admin-token/699ecb022ea243aeafb8285061cbb1e0
+          # VIKTIGT: oversionerad URL (ingen GUID på slutet)
+          KV_INFLUX_TOKEN_URL: https://iiotpockv.vault.azure.net/secrets/influxdb-admin-token
         run: |
-          az containerapp secret set \
-            -g "$RG" -n "$APP" \
-            --secrets influxdb-admin-token=keyvaultref:${KV_INFLUX_TOKEN_URL},identityref:system
+          set -euo pipefail
+          for i in {1..12}; do
+            if az containerapp secret set \
+              -g "$RG" -n "$APP" \
+              --secrets influxdb-admin-token=keyvaultref:${KV_INFLUX_TOKEN_URL},identityref:system; then
+              echo "KV secret reference added."
+              exit 0
+            fi
+            echo "Retry $i/12 adding KV secret reference..."; sleep 10
+          done
+          echo "Failed to add KV secret reference after retries"; exit 1
         # Syntax: key=keyvaultref:<url>,identityref:<identity> :contentReference[oaicite:5]{index=5}
 
       # ⛔️ Skippa GitHub-secret-vägen om vi kör KV
