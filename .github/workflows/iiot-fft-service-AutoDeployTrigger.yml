@@ -62,15 +62,10 @@ jobs:
               "subscriptionId": "${{ secrets.IIOTFFTSERVICE_AZURE_SUBSCRIPTION_ID }}"
             }
 
-                  # 4) Optional: Clean up old inactive revisions
-      - name: Clean up old revisions
-        run: |
-          echo "Cleaning up inactive revisions..."
-          az containerapp revision list \
-            -g iiot-poc-rg -n iiot-fft-service \
-            --query "[?active==\`false\`].name" -o tsv | \
-          xargs -r -I {} az containerapp revision delete \
-            -g iiot-poc-rg -n iiot-fft-service --name {} --yes
+
+      - name: Inject image tag into YAML
+        run: sed -i "s|__TAG__|${{ github.sha }}|g" infra/iiot-fft-service.yaml
+
 
       - name: Build and deploy to Azure Container Apps
         uses: azure/container-apps-deploy-action@v2
@@ -82,7 +77,18 @@ jobs:
           resourceGroup: iiot-poc-rg
           imageToBuild: iiotpocacr.azurecr.io/iiot-fft-service:${{ github.sha }}
           yamlConfigPath: infra/iiot-fft-service.yaml
+
+                   # 4) Optional: Clean up old inactive revisions
+      - name: Clean up old revisions
+        run: |
+          echo "Cleaning up inactive revisions..."
+          az containerapp revision list \
+            -g iiot-poc-rg -n iiot-fft-service \
+            --query "[?active==\`false\`].name" -o tsv | \
+          xargs -r -I {} az containerapp revision delete \
+            -g iiot-poc-rg -n iiot-fft-service --name {} --yes
   
+
 
 
 
