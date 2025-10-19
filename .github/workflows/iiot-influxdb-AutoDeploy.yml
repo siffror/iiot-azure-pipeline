@@ -1,0 +1,35 @@
+name: Auto deploy iiot-influxdb
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'infra/iiot-influxdb.yaml'
+      - '.github/workflows/iiot-influxdb-AutoDeploy.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.IIOTFFTSERVICE_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.IIOTFFTSERVICE_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.IIOTFFTSERVICE_AZURE_SUBSCRIPTION_ID }}
+      - name: Deploy InfluxDB (ACA)
+        uses: azure/container-apps-deploy-action@v2
+        with:
+          containerAppName: iiot-influxdb
+          resourceGroup: iiot-poc-rg
+          imageToDeploy: influxdb:2.7
+          yamlConfigPath: infra/iiot-influxdb.yaml
+      - name: Cleanup old inactive revisions
+        run: |
+          az containerapp revision list -g iiot-poc-rg -n iiot-influxdb \
+            --query "[?properties.active==\`false\`].name" -o tsv | \
+          xargs -r -I {} az containerapp revision delete \
+            -g iiot-poc-rg -n iiot-influxdb --revision {} --yes
