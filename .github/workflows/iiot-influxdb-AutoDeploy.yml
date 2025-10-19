@@ -1,10 +1,11 @@
 name: Auto deploy influxdb
+
 on:
   push:
     branches: [ main ]
     paths:
       - 'infra/influxdb.yaml'
-      - '.github/workflows/influxdb-AutoDeploy.yml'
+      - '.github/workflows/iiot-influxdb-AutoDeploy.yml'
   workflow_dispatch:
 
 jobs:
@@ -13,21 +14,30 @@ jobs:
     permissions:
       id-token: write
       contents: read
+
     steps:
       - uses: actions/checkout@v4
-      - uses: azure/login@v2
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
         with:
           client-id: ${{ secrets.IIOTFFTSERVICE_AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.IIOTFFTSERVICE_AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.IIOTFFTSERVICE_AZURE_SUBSCRIPTION_ID }}
-      - name: Deploy InfluxDB (ACA)
+
+      - name: Sanity check
+        run: |
+          az account show -o table
+          az containerapp list -g iiot-poc-rg -o table
+
+      - name: Deploy InfluxDB (ACA via YAML)
         uses: azure/container-apps-deploy-action@v2
         with:
-          containerAppName: influxdb
           resourceGroup: iiot-poc-rg
-          containerAppEnvironment: iiot-env-public   
-          imageToDeploy: influxdb:2.7
-          yamlConfigPath: infra/influxdb.yaml
+          containerAppName: influxdb
+          containerAppEnvironment: iiot-env-public
+          yamlConfigPath: infra/influxdb.yaml   # YAML äger imagen & volymer
+
       - name: Cleanup old inactive revisions
         run: |
           az containerapp revision list -g iiot-poc-rg -n influxdb \
