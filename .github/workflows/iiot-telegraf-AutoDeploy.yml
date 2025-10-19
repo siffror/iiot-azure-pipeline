@@ -43,7 +43,7 @@ jobs:
           az containerapp create -g "$RG" -n "$APP" \
             --environment "$ENV_NAME" \
             --image mcr.microsoft.com/azuredocs/containerapps-helloworld:latest \
-            --ingress disabled
+            --ingress internal
 
       # 4) Set/Update secrets required by the app (must exist before deploy uses secretRef)
       #    INFLUXDB_ADMIN_TOKEN must be configured in GitHub repo secrets.
