@@ -6,7 +6,7 @@ properties:
   template:
     containers:
       - name: iiot-fft-service
-        image: iiotpocacr.azurecr.io/iiot-fft-service:${IMAGE_TAG}
+        image: iiotpocacr.azurecr.io/iiot-fft-service:${{ github.sha }}
         probes:
           - type: Liveness
             httpGet:
