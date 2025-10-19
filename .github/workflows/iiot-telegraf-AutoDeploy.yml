@@ -23,11 +23,9 @@ jobs:
       ACR_NAME: iiotpocacr
 
     steps:
-      # 1) Checkout repo
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 2) Azure login via OIDC
       - name: Azure Login (OIDC)
         uses: azure/login@v2
         with:
@@ -35,7 +33,6 @@ jobs:
           tenant-id: ${{ secrets.IIOTFFTSERVICE_AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.IIOTFFTSERVICE_AZURE_SUBSCRIPTION_ID }}
 
-      # 3) Ensure the app exists (first run) so we can attach secrets
       - name: Ensure app exists (first run)
         shell: bash
         run: |
@@ -45,39 +42,32 @@ jobs:
             --image mcr.microsoft.com/azuredocs/containerapps-helloworld:latest \
             --ingress internal
 
-      # 3.a) ⚙️ Wire ACR pull with system identity (idempotent)
-      # 3.a) 🔐 Lägg en TEMPORÄR dummy-secret (gäller bara när vi kör KV-vägen)
-      - name: Bootstrap dummy secret to satisfy validation
-        if: ${{ vars.SECRET_SOURCE == 'kv' }}
-        shell: bash
-        run: |
-          az containerapp secret set -g "$RG" -n "$APP" \
-            --secrets influxdb-admin-token="bootstrap-placeholder"
-
-      # 3.b) ⚙️ Wire ACR pull with system identity (idempotent)
-      - name: Wire ACR pull with system identity
+      # 🔄 Vänta tills provisioning är klar (hindrar 'operation in progress')
+      - name: Wait until app is ready
         shell: bash
         run: |
           set -euo pipefail
+          for i in {1..60}; do
+            STATE=$(az containerapp show -g "$RG" -n "$APP" --query "properties.provisioningState" -o tsv || echo "Unknown")
+            if [ "$STATE" = "Succeeded" ] || [ "$STATE" = "Running" ]; then
+              echo "App ready (state=$STATE)"; break
+            fi
+            echo "Waiting for app provisioning to finish (state=$STATE)..."
+            sleep 5
+            if [ $i -eq 60 ]; then echo "Timeout waiting for app"; exit 1; fi
+          done
+        # Allmän felsökning: vänta tills appen är klar innan uppdateringar görs. :contentReference[oaicite:2]{index=2}
+
+      # ⚙️ Bind ACR med system-MI (RBAC är redan satt manuellt)
+      - name: Configure ACR registry with system identity
+        shell: bash
+        run: |
           ACR_SERVER="${ACR_NAME}.azurecr.io"
-      
-          # Enable system-assigned MI on the app (idempotent)
-          az containerapp identity assign -g "$RG" -n "$APP" --system-assigned
-      
-          # Bind registry to use MI (AcrPull finns redan efter steg 1)
-          az containerapp registry set -g "$RG" -n "$APP" --server "$ACR_SERVER" --identity system
+          az containerapp identity assign -g "$RG" -n "$APP" --system-assigned      # aktivera MI :contentReference[oaicite:3]{index=3}
+          az containerapp registry set -g "$RG" -n "$APP" --server "$ACR_SERVER" --identity system  # bind registry :contentReference[oaicite:4]{index=4}
 
-
-          # Grant AcrPull on the registry to the app MI
-          APP_PRINCIPAL_ID=$(az containerapp identity show -g "$RG" -n "$APP" --query principalId -o tsv)
-          ACR_ID=$(az acr show -g "$RG" -n "$ACR_NAME" --query id -o tsv)
-          az role assignment create --assignee "$APP_PRINCIPAL_ID" --scope "$ACR_ID" --role "AcrPull" >/dev/null || true
-
-          # Use MI when pulling from ACR
-          az containerapp registry set -g "$RG" -n "$APP" --server "$ACR_SERVER" --identity system
-
-      # 3.c) 🔁 Ersätt dummy med Key Vault-referensen (idempotent)
-      - name: Ensure KV secret exists (replace dummy)
+      # 🔐 Säkerställ att KV-referensen finns i appen innan YAML valideras
+      - name: Ensure KV secret exists (iiot-telegraf)
         if: ${{ vars.SECRET_SOURCE == 'kv' }}
         shell: bash
         env:
@@ -86,8 +76,9 @@ jobs:
           az containerapp secret set \
             -g "$RG" -n "$APP" \
             --secrets influxdb-admin-token=keyvaultref:${KV_INFLUX_TOKEN_URL},identityref:system
+        # Syntax: key=keyvaultref:<url>,identityref:<identity> :contentReference[oaicite:5]{index=5}
 
-      # 3.1) ⛔️ Validate required secret (A-vägen) – kör INTE om SECRET_SOURCE=kv
+      # ⛔️ Skippa GitHub-secret-vägen om vi kör KV
       - name: Validate required secret
         if: ${{ vars.SECRET_SOURCE != 'kv' }}
         shell: bash
@@ -98,7 +89,6 @@ jobs:
           fi
           echo "INFLUXDB_ADMIN_TOKEN length: ${#TOK}"
 
-      # 4) ⛔️ Sätt app-secrets (A-vägen) – kör INTE om SECRET_SOURCE=kv
       - name: Set app secrets
         if: ${{ vars.SECRET_SOURCE != 'kv' }}
         shell: bash
@@ -107,7 +97,6 @@ jobs:
           az containerapp secret set -g "$RG" -n "$APP" \
             --secrets influxdb-admin-token="$CLEAN_TOKEN"
 
-      # 5) Render YAML tag (__TAG__ -> commit SHA)
       - name: Render YAML tag
         shell: bash
         run: |
@@ -115,7 +104,6 @@ jobs:
           sed -i "s|__TAG__|${{ github.sha }}|g" infra/iiot-telegraf.rendered.yaml
           cat infra/iiot-telegraf.rendered.yaml
 
-      # 6) Build container, push to ACR, and deploy to ACA
       - name: Build & Deploy Telegraf (ACA)
         uses: azure/container-apps-deploy-action@v2
         with:
@@ -128,14 +116,13 @@ jobs:
           imageToBuild: ${{ env.ACR_NAME }}.azurecr.io/iiot-telegraf:${{ github.sha }}
           yamlConfigPath: infra/iiot-telegraf.rendered.yaml
 
-      # 6.1) ✅ Pin env to the secret (no creation)
       - name: Map INFLUX_TOKEN to existing KV-backed secret
         shell: bash
         run: |
           az containerapp update -g "$RG" -n "$APP" \
-            --set-env-vars INFLUX_TOKEN=secretref:influxdb-admin-token   # :contentReference[oaicite:4]{index=4}
+            --set-env-vars INFLUX_TOKEN=secretref:influxdb-admin-token
+        # CLI env->secret ska använda 'secretref:' :contentReference[oaicite:6]{index=6}
 
-      # 7) Clean up old inactive revisions
       - name: Cleanup old inactive revisions
         shell: bash
         run: |
