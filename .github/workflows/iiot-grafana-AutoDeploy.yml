@@ -1,0 +1,44 @@
+name: Auto deploy iiot-grafana
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'grafana/**'
+      - 'infra/iiot-grafana.yaml'
+      - '.github/workflows/iiot-grafana-AutoDeploy.yml'
+  workflow_dispatch:
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.IIOTFFTSERVICE_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.IIOTFFTSERVICE_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.IIOTFFTSERVICE_AZURE_SUBSCRIPTION_ID }}
+      - name: Render YAML tag
+        run: |
+          cp infra/iiot-grafana.yaml infra/iiot-grafana.rendered.yaml
+          sed -i "s|__TAG__|${{ github.sha }}|g" infra/iiot-grafana.rendered.yaml
+          cat infra/iiot-grafana.rendered.yaml
+      - name: Build & Deploy Grafana (ACA)
+        uses: azure/container-apps-deploy-action@v2
+        with:
+          appSourcePath: ${{ github.workspace }}/grafana
+          dockerfilePath: grafana/Dockerfile
+          acrName: iiotpocacr
+          containerAppName: iiot-grafana
+          resourceGroup: iiot-poc-rg
+          imageToBuild: iiotpocacr.azurecr.io/iiot-grafana:${{ github.sha }}
+          yamlConfigPath: infra/iiot-grafana.rendered.yaml
+      - name: Cleanup old inactive revisions
+        run: |
+          az containerapp revision list -g iiot-poc-rg -n iiot-grafana \
+            --query "[?properties.active==\`false\`].name" -o tsv | \
+          xargs -r -I {} az containerapp revision delete \
+            -g iiot-poc-rg -n iiot-grafana --revision {} --yes
