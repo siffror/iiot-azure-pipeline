@@ -43,6 +43,10 @@ jobs:
           # Path to your Dockerfile relative to appSourcePath
           dockerfilePath: Dockerfile
 
+              # OIDC-baserad inloggning till ACR
+          acrName: iiotpocacr
+
+
           # Azure target details
           containerAppName: iiot-fft-service
           resourceGroup: iiot-poc-rg
@@ -58,3 +62,4 @@ jobs:
               "tenantId": "${{ secrets.IIOTFFTSERVICE_AZURE_TENANT_ID }}",
               "subscriptionId": "${{ secrets.IIOTFFTSERVICE_AZURE_SUBSCRIPTION_ID }}"
             }
+
