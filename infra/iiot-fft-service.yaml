@@ -2,21 +2,17 @@ type: Microsoft.App/containerApps
 name: iiot-fft-service
 properties:
   configuration:
-    ingress: null   # ingen ingress – körs internt
+    ingress: null
   template:
     containers:
       - name: iiot-fft-service
-        image: iiotpocacr.azurecr.io/iiot-fft-service:${{ github.sha }}
+        image: iiotpocacr.azurecr.io/iiot-fft-service:__TAG__
         probes:
           - type: Liveness
-            httpGet:
-              path: /health
-              port: 5000
+            httpGet: { path: /health, port: 5000 }
             initialDelaySeconds: 3
             periodSeconds: 10
           - type: Readiness
-            httpGet:
-              path: /health
-              port: 5000
+            httpGet: { path: /health, port: 5000 }
             initialDelaySeconds: 3
             periodSeconds: 5
