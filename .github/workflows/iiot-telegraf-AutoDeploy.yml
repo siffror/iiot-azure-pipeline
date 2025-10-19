@@ -30,7 +30,7 @@ jobs:
         uses: azure/container-apps-deploy-action@v2
         with:
           appSourcePath: ${{ github.workspace }}/telegraf
-          dockerfilePath: telegraf/Dockerfile
+          dockerfilePath: Dockerfile
           acrName: iiotpocacr
           containerAppName: iiot-telegraf
           resourceGroup: iiot-poc-rg
