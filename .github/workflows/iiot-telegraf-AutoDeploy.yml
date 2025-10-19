@@ -1,12 +1,12 @@
-name: Auto deploy iiot-telegraf
+name: Auto deploy telegraf
 
 on:
   push:
     branches: [ main ]
     paths:
       - 'telegraf/**'
-      - 'infra/iiot-telegraf.yaml'
-      - '.github/workflows/iiot-telegraf-AutoDeploy.yml'
+      - 'infra/telegraf.yaml'
+      - '.github/workflows/telegraf-AutoDeploy.yml'
   workflow_dispatch:
 
 jobs:
@@ -18,7 +18,7 @@ jobs:
 
     env:
       RG: iiot-poc-rg
-      APP: iiot-telegraf
+      APP: telegraf
       ENV_NAME: iiot-env-public
       ACR_NAME: iiotpocacr
 
@@ -66,7 +66,7 @@ jobs:
           az containerapp registry set -g "$RG" -n "$APP" --server "$ACR_SERVER" --identity system  # bind registry :contentReference[oaicite:4]{index=4}
 
       # 🔐 Säkerställ att KV-referensen finns i appen innan YAML valideras
-      - name: Ensure KV secret exists (iiot-telegraf) with retry + versionless URL
+      - name: Ensure KV secret exists (telegraf) with retry + versionless URL
         if: ${{ vars.SECRET_SOURCE == 'kv' }}
         shell: bash
         env:
@@ -108,9 +108,9 @@ jobs:
       - name: Render YAML tag
         shell: bash
         run: |
-          cp infra/iiot-telegraf.yaml infra/iiot-telegraf.rendered.yaml
-          sed -i "s|__TAG__|${{ github.sha }}|g" infra/iiot-telegraf.rendered.yaml
-          cat infra/iiot-telegraf.rendered.yaml
+          cp infra/telegraf.yaml infra/telegraf.rendered.yaml
+          sed -i "s|__TAG__|${{ github.sha }}|g" infra/telegraf.rendered.yaml
+          cat infra/telegraf.rendered.yaml
 
       - name: Build & Deploy Telegraf (ACA)
         uses: azure/container-apps-deploy-action@v2
@@ -121,8 +121,8 @@ jobs:
           containerAppName: ${{ env.APP }}
           resourceGroup: ${{ env.RG }}
           containerAppEnvironment: ${{ env.ENV_NAME }}
-          imageToBuild: ${{ env.ACR_NAME }}.azurecr.io/iiot-telegraf:${{ github.sha }}
-          yamlConfigPath: infra/iiot-telegraf.rendered.yaml
+          imageToBuild: ${{ env.ACR_NAME }}.azurecr.io/telegraf:${{ github.sha }}
+          yamlConfigPath: infra/telegraf.rendered.yaml
 
       - name: Map INFLUX_TOKEN to existing KV-backed secret
         shell: bash
