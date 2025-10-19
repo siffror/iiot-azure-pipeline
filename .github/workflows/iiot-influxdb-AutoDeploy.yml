@@ -25,6 +25,7 @@ jobs:
         with:
           containerAppName: iiot-influxdb
           resourceGroup: iiot-poc-rg
+          containerAppEnvironment: iiot-env-public   
           imageToDeploy: influxdb:2.7
           yamlConfigPath: infra/iiot-influxdb.yaml
       - name: Cleanup old inactive revisions
