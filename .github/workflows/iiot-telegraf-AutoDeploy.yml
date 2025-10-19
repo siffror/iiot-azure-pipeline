@@ -60,9 +60,13 @@ jobs:
         run: |
           set -euo pipefail
           ACR_SERVER="${ACR_NAME}.azurecr.io"
-
-          # Enable system-assigned MI on the app
+      
+          # Enable system-assigned MI on the app (idempotent)
           az containerapp identity assign -g "$RG" -n "$APP" --system-assigned
+      
+          # Bind registry to use MI (AcrPull finns redan efter steg 1)
+          az containerapp registry set -g "$RG" -n "$APP" --server "$ACR_SERVER" --identity system
+
 
           # Grant AcrPull on the registry to the app MI
           APP_PRINCIPAL_ID=$(az containerapp identity show -g "$RG" -n "$APP" --query principalId -o tsv)
