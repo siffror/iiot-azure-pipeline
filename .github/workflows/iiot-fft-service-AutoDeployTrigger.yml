@@ -72,6 +72,19 @@ jobs:
           xargs -r -I {} az containerapp revision delete \
             -g iiot-poc-rg -n iiot-fft-service --name {} --yes
 
+      - name: Build and deploy to Azure Container Apps
+        uses: azure/container-apps-deploy-action@v2
+        with:
+          appSourcePath: ${{ github.workspace }}/fft_service
+          dockerfilePath: Dockerfile
+          acrName: iiotpocacr
+          containerAppName: iiot-fft-service
+          resourceGroup: iiot-poc-rg
+          imageToBuild: iiotpocacr.azurecr.io/iiot-fft-service:${{ github.sha }}
+          yamlConfigPath: infra/iiot-fft-service.yaml
+  
+
+
 
 
 
