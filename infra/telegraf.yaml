@@ -1,15 +1,25 @@
-type: containerapp
+# Azure Container App - telegraf (no probes, secretref token, ACR image)
+type: Microsoft.App/containerApps
+apiVersion: 2024-08-02-preview
 name: telegraf
-location: northeurope
+location: North Europe
 properties:
   managedEnvironmentId: /subscriptions/5e58abe7-2302-449a-a7a2-35f2b3c4b886/resourceGroups/iiot-poc-rg/providers/Microsoft.App/managedEnvironments/iiot-env-public
   configuration:
-    ingress: null                 # Telegraf brukar inte exponeras
+    activeRevisionsMode: Single
+    ingress: null
     registries:
-      - server: __ACR__
+      - server: iiotpocacr.azurecr.io
         identity: system
-    secrets:                      # referensen finns redan via KV men behåll namnet
+        username: ""
+        passwordSecretRef: ""
+    # Behåll befintliga secrets (ingen value i klartext!)
+    secrets:
+      - name: telegraf-conf
+      - name: influx-token
       - name: influxdb-admin-token
+        keyVaultUrl: https://iiotpockv.vault.azure.net/secrets/influxdb-admin-token/699ecb022ea243aeafb8285061cbb1e0
+        identity: system
   template:
     containers:
       - name: telegraf
@@ -17,8 +27,6 @@ properties:
         env:
           - name: MQTT_URL
             value: tcp://mosquitto:1883
-          - name: MQTT_TOPIC
-            value: sensors/#
           - name: INFLUX_URL
             value: http://influxdb:8086
           - name: INFLUX_ORG
@@ -26,7 +34,25 @@ properties:
           - name: INFLUX_BUCKET
             value: vibration
           - name: INFLUX_TOKEN
-            secretRef: influxdb-admin-token
+            value: secretref:influxdb-admin-token
+          - name: TELEGRAF_CONFIG_PATH
+            value: /etc/telegraf/telegraf.conf
+        resources:
+          cpu: 0.25
+          memory: 0.5Gi
+          ephemeralStorage: 1Gi
+        # OBS: Inga probes här (borttagna med flit)
+        volumeMounts:
+          - volumeName: telegraf-config
+            mountPath: /etc/telegraf
+    volumes:
+      - name: telegraf-config
+        storageType: Secret
+        secrets:
+          - secretRef: telegraf-conf
+            path: telegraf.conf
+          - secretRef: influx-token
+            path: influx-token
     scale:
       minReplicas: 1
-      maxReplicas: 2
+      maxReplicas: 1
