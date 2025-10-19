@@ -1,0 +1,52 @@
+type: Microsoft.App/containerApps
+name: iiot-influxdb
+properties:
+  configuration:
+    activeRevisionsMode: Single
+    ingress:
+      external: false         # internal-only
+      targetPort: 8086
+      transport: auto
+      traffic:
+        - latestRevision: true
+          weight: 100
+  template:
+    containers:
+      - name: iiot-influxdb
+        image: influxdb:2.7
+        env:
+          # One-time setup (idempotent on persisted volume)
+          - name: DOCKER_INFLUXDB_INIT_MODE
+            value: setup
+          - name: DOCKER_INFLUXDB_INIT_USERNAME
+            secretRef: influxdb-admin-user
+          - name: DOCKER_INFLUXDB_INIT_PASSWORD
+            secretRef: influxdb-admin-pass
+          - name: DOCKER_INFLUXDB_INIT_ORG
+            value: iiot-org
+          - name: DOCKER_INFLUXDB_INIT_BUCKET
+            value: iiot
+          - name: DOCKER_INFLUXDB_INIT_RETENTION
+            value: 30d
+          - name: DOCKER_INFLUXDB_INIT_ADMIN_TOKEN
+            secretRef: influxdb-admin-token
+        volumeMounts:
+          - volumeName: influxdb-data
+            mountPath: /var/lib/influxdb2
+        probes:
+          - type: liveness
+            httpGet:
+              path: /health
+              port: 8086
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          - type: readiness
+            httpGet:
+              path: /health
+              port: 8086
+            initialDelaySeconds: 5
+            periodSeconds: 10
+    volumes:
+      - name: influxdb-data
+        storageType: AzureFile
+        storageName: influxdb-storage
