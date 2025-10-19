@@ -35,18 +35,23 @@ properties:
           - volumeName: influxdb-data
             mountPath: /var/lib/influxdb2
         probes:
-          - type: liveness
-            httpGet:
-              path: /health
-              port: 8086
-            initialDelaySeconds: 10
-            periodSeconds: 15
           - type: readiness
             httpGet:
               path: /health
               port: 8086
-            initialDelaySeconds: 5
+            initialDelaySeconds: 15
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+          - type: liveness
+            httpGet:
+              path: /health
+              port: 8086
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
     volumes:
       - name: influxdb-data
         storageType: AzureFile
