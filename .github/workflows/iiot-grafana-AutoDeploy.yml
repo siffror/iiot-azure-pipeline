@@ -34,6 +34,7 @@ jobs:
           acrName: iiotpocacr
           containerAppName: iiot-grafana
           resourceGroup: iiot-poc-rg
+          containerAppEnvironment: iiot-env-public
           imageToBuild: iiotpocacr.azurecr.io/iiot-grafana:${{ github.sha }}
           yamlConfigPath: infra/iiot-grafana.rendered.yaml
       - name: Cleanup old inactive revisions
