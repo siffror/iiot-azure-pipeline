@@ -46,6 +46,15 @@ jobs:
             --ingress internal
 
       # 3.a) ⚙️ Wire ACR pull with system identity (idempotent)
+      # 3.a) 🔐 Lägg en TEMPORÄR dummy-secret (gäller bara när vi kör KV-vägen)
+      - name: Bootstrap dummy secret to satisfy validation
+        if: ${{ vars.SECRET_SOURCE == 'kv' }}
+        shell: bash
+        run: |
+          az containerapp secret set -g "$RG" -n "$APP" \
+            --secrets influxdb-admin-token="bootstrap-placeholder"
+
+      # 3.b) ⚙️ Wire ACR pull with system identity (idempotent)
       - name: Wire ACR pull with system identity
         shell: bash
         run: |
@@ -53,18 +62,18 @@ jobs:
           ACR_SERVER="${ACR_NAME}.azurecr.io"
 
           # Enable system-assigned MI on the app
-          az containerapp identity assign -g "$RG" -n "$APP" --system-assigned   # :contentReference[oaicite:1]{index=1}
+          az containerapp identity assign -g "$RG" -n "$APP" --system-assigned
 
           # Grant AcrPull on the registry to the app MI
           APP_PRINCIPAL_ID=$(az containerapp identity show -g "$RG" -n "$APP" --query principalId -o tsv)
           ACR_ID=$(az acr show -g "$RG" -n "$ACR_NAME" --query id -o tsv)
           az role assignment create --assignee "$APP_PRINCIPAL_ID" --scope "$ACR_ID" --role "AcrPull" >/dev/null || true
 
-          # Tell the app to use MI when pulling from ACR
-          az containerapp registry set -g "$RG" -n "$APP" --server "$ACR_SERVER" --identity system   # :contentReference[oaicite:2]{index=2}
+          # Use MI when pulling from ACR
+          az containerapp registry set -g "$RG" -n "$APP" --server "$ACR_SERVER" --identity system
 
-      # 3.b) 🔐 Ensure KV-backed secret exists on target app (idempotent)
-      - name: Ensure KV secret exists (iiot-telegraf)
+      # 3.c) 🔁 Ersätt dummy med Key Vault-referensen (idempotent)
+      - name: Ensure KV secret exists (replace dummy)
         if: ${{ vars.SECRET_SOURCE == 'kv' }}
         shell: bash
         env:
@@ -72,7 +81,7 @@ jobs:
         run: |
           az containerapp secret set \
             -g "$RG" -n "$APP" \
-            --secrets influxdb-admin-token=keyvaultref:${KV_INFLUX_TOKEN_URL},identityref:system   # :contentReference[oaicite:3]{index=3}
+            --secrets influxdb-admin-token=keyvaultref:${KV_INFLUX_TOKEN_URL},identityref:system
 
       # 3.1) ⛔️ Validate required secret (A-vägen) – kör INTE om SECRET_SOURCE=kv
       - name: Validate required secret
