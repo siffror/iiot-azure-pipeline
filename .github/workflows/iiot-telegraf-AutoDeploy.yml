@@ -1,0 +1,44 @@
+name: Auto deploy iiot-telegraf
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'telegraf/**'
+      - 'infra/iiot-telegraf.yaml'
+      - '.github/workflows/iiot-telegraf-AutoDeploy.yml'
+  workflow_dispatch:
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.IIOTFFTSERVICE_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.IIOTFFTSERVICE_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.IIOTFFTSERVICE_AZURE_SUBSCRIPTION_ID }}
+      - name: Render YAML tag
+        run: |
+          cp infra/iiot-telegraf.yaml infra/iiot-telegraf.rendered.yaml
+          sed -i "s|__TAG__|${{ github.sha }}|g" infra/iiot-telegraf.rendered.yaml
+          cat infra/iiot-telegraf.rendered.yaml
+      - name: Build & Deploy Telegraf (ACA)
+        uses: azure/container-apps-deploy-action@v2
+        with:
+          appSourcePath: ${{ github.workspace }}/telegraf
+          dockerfilePath: telegraf/Dockerfile
+          acrName: iiotpocacr
+          containerAppName: iiot-telegraf
+          resourceGroup: iiot-poc-rg
+          imageToBuild: iiotpocacr.azurecr.io/iiot-telegraf:${{ github.sha }}
+          yamlConfigPath: infra/iiot-telegraf.rendered.yaml
+      - name: Cleanup old inactive revisions
+        run: |
+          az containerapp revision list -g iiot-poc-rg -n iiot-telegraf \
+            --query "[?properties.active==\`false\`].name" -o tsv | \
+          xargs -r -I {} az containerapp revision delete \
+            -g iiot-poc-rg -n iiot-telegraf --revision {} --yes
