@@ -34,6 +34,7 @@ jobs:
           acrName: iiotpocacr
           containerAppName: iiot-telegraf
           resourceGroup: iiot-poc-rg
+          containerAppEnvironment: iiot-env-public
           imageToBuild: iiotpocacr.azurecr.io/iiot-telegraf:${{ github.sha }}
           yamlConfigPath: infra/iiot-telegraf.rendered.yaml
       - name: Cleanup old inactive revisions
