@@ -1,0 +1,43 @@
+type: Microsoft.App/containerApps
+name: iiot-telegraf
+properties:
+  configuration:
+    activeRevisionsMode: Single
+    # No ingress (not serving traffic) – probes går ändå direkt mot containern
+  template:
+    containers:
+      - name: iiot-telegraf
+        image: iiotpocacr.azurecr.io/iiot-telegraf:__TAG__
+        env:
+          - name: INFLUX_URL
+            value: http://iiot-influxdb:8086
+          - name: INFLUX_ORG
+            value: iiot-org
+          - name: INFLUX_BUCKET
+            value: iiot
+          - name: INFLUX_TOKEN
+            secretRef: influxdb-admin-token
+          - name: MQTT_URL
+            value: tcp://iiot-mosquitto:1883
+          - name: MQTT_TOPIC
+            value: sensors/#
+        volumeMounts:
+          - volumeName: telegraf-config
+            mountPath: /etc/telegraf
+        probes:
+          - type: liveness
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          - type: readiness
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+    volumes:
+      - name: telegraf-config
+        storageType: AzureFile
+        storageName: iiotdata-storage
