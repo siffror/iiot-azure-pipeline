@@ -1,0 +1,32 @@
+type: containerapp
+name: telegraf
+location: northeurope
+properties:
+  managedEnvironmentId: /subscriptions/5e58abe7-2302-449a-a7a2-35f2b3c4b886/resourceGroups/iiot-poc-rg/providers/Microsoft.App/managedEnvironments/iiot-env-public
+  configuration:
+    ingress: null                 # Telegraf brukar inte exponeras
+    registries:
+      - server: __ACR__
+        identity: system
+    secrets:                      # referensen finns redan via KV men behåll namnet
+      - name: influxdb-admin-token
+  template:
+    containers:
+      - name: telegraf
+        image: __ACR__/telegraf:__TAG__
+        env:
+          - name: MQTT_URL
+            value: tcp://mosquitto:1883
+          - name: MQTT_TOPIC
+            value: sensors/#
+          - name: INFLUX_URL
+            value: http://influxdb:8086
+          - name: INFLUX_ORG
+            value: iiot
+          - name: INFLUX_BUCKET
+            value: vibration
+          - name: INFLUX_TOKEN
+            secretRef: influxdb-admin-token
+    scale:
+      minReplicas: 1
+      maxReplicas: 2
