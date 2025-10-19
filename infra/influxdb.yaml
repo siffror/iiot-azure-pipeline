@@ -1,5 +1,5 @@
 type: Microsoft.App/containerApps
-name: iiot-influxdb
+name: influxdb
 properties:
   environmentId: /subscriptions/5e58abe7-2302-449a-a7a2-35f2b3c4b886/resourceGroups/iiot-poc-rg/providers/Microsoft.App/managedEnvironments/iiot-env-public
   configuration:
@@ -13,7 +13,7 @@ properties:
           weight: 100
   template:
     containers:
-      - name: iiot-influxdb
+      - name: influxdb
         image: influxdb:2.7
         env:
           # One-time setup (idempotent on persisted volume)
