@@ -1,85 +1,56 @@
 name: Trigger auto deployment for iiot-fft-service
 
-# When this action will be executed
 on:
-  # Automatically trigger it when changes are detected in the repo
   push:
     branches: [ main ]
     paths:
       - 'fft_service/**'
+      - 'infra/iiot-fft-service.yaml'
       - '.github/workflows/iiot-fft-service-AutoDeployTrigger.yml'
-
-  # Allow manual trigger
   workflow_dispatch:
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-
     permissions:
-      id-token: write   # Required for requesting the OIDC JWT Token
-      contents: read    # Required to clone the repository
+      id-token: write
+      contents: read
 
     steps:
-      # 1) Checkout the code
+      # 1) Checkout
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      # 2) Login to Azure using federated credentials (OIDC)
-      - name: Azure Login
+      # 2) Azure login via OIDC
+      - name: Azure Login (OIDC)
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.IIOTFFTSERVICE_AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.IIOTFFTSERVICE_AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.IIOTFFTSERVICE_AZURE_SUBSCRIPTION_ID }}
 
-      # 3) Build image and deploy to Azure Container Apps
-      - name: Build and deploy to Azure Container Apps
-        uses: azure/container-apps-deploy-action@v2
-        with:
-          # Path to your FFT service source folder
-          appSourcePath: ${{ github.workspace }}/fft_service
+      # 3) Render YAML (ersätt __TAG__ -> commit SHA)
+      - name: Render infra YAML with image tag
+        run: |
+          cp infra/iiot-fft-service.yaml infra/iiot-fft-service.rendered.yaml
+          sed -i "s|__TAG__|${{ github.sha }}|g" infra/iiot-fft-service.rendered.yaml
+          echo "Rendered YAML:"
+          cat infra/iiot-fft-service.rendered.yaml
 
-          # Path to your Dockerfile relative to appSourcePath
-          dockerfilePath: Dockerfile
-
-              # OIDC-baserad inloggning till ACR
-          acrName: iiotpocacr
-
-
-          # Azure target details
-          containerAppName: iiot-fft-service
-          resourceGroup: iiot-poc-rg
-
-          # Image to build (commit SHA as tag)
-          imageToBuild: iiotpocacr.azurecr.io/iiot-fft-service:${{ github.sha }}
-
-          # Federated OIDC credentials (no registry username/password required)
-          azureCredentials: |
-            {
-              "clientId": "${{ secrets.IIOTFFTSERVICE_AZURE_CLIENT_ID }}",
-              "tenantId": "${{ secrets.IIOTFFTSERVICE_AZURE_TENANT_ID }}",
-              "subscriptionId": "${{ secrets.IIOTFFTSERVICE_AZURE_SUBSCRIPTION_ID }}"
-            }
-
-
-      - name: Inject image tag into YAML
-        run: sed -i "s|__TAG__|${{ github.sha }}|g" infra/iiot-fft-service.yaml
-
-
+      # 4) Build, push (ACR) och deploy (ACA)
       - name: Build and deploy to Azure Container Apps
         uses: azure/container-apps-deploy-action@v2
         with:
           appSourcePath: ${{ github.workspace }}/fft_service
           dockerfilePath: Dockerfile
-          acrName: iiotpocacr
+          acrName: iiotpocacr                     # ACR auth via OIDC
           containerAppName: iiot-fft-service
           resourceGroup: iiot-poc-rg
           imageToBuild: iiotpocacr.azurecr.io/iiot-fft-service:${{ github.sha }}
-          yamlConfigPath: infra/iiot-fft-service.yaml
+          yamlConfigPath: infra/iiot-fft-service.rendered.yaml
 
-                   # 4) Optional: Clean up old inactive revisions
-      - name: Clean up old revisions
+      # 5) (Optional) Städa bort inaktiva revisioner
+      - name: Clean up old inactive revisions
         run: |
           echo "Cleaning up inactive revisions..."
           az containerapp revision list \
@@ -87,10 +58,3 @@ jobs:
             --query "[?active==\`false\`].name" -o tsv | \
           xargs -r -I {} az containerapp revision delete \
             -g iiot-poc-rg -n iiot-fft-service --name {} --yes
-  
-
-
-
-
-
-
