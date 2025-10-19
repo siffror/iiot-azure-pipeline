@@ -10,7 +10,7 @@ properties:
       - name: iiot-telegraf
         image: iiotpocacr.azurecr.io/iiot-telegraf:__TAG__
         env:
-          - name: MQTTT_URL
+          - name: MQTT_URL
             value: tcp://iiot-mosquitto:1883
           - name: MQTT_TOPIC
             value: sensors/#
