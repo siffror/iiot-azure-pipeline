@@ -106,14 +106,13 @@ jobs:
             --secrets influxdb-admin-token="$CLEAN_TOKEN"
 
       - name: Render YAML tag + ACR
-        shell: bash
         run: |
           cp infra/telegraf.yaml infra/telegraf.rendered.yaml
           sed -i "s|__TAG__|${{ github.sha }}|g" infra/telegraf.rendered.yaml
           sed -i "s|__ACR__|${{ env.ACR_NAME }}.azurecr.io|g" infra/telegraf.rendered.yaml
-          echo "----- RENDERED -----"
           grep 'image:' -n infra/telegraf.rendered.yaml
       
+            
       - name: Build & Deploy Telegraf (ACA)
         uses: azure/container-apps-deploy-action@v2
         with:
@@ -121,9 +120,9 @@ jobs:
           dockerfilePath: Dockerfile
           acrName: ${{ env.ACR_NAME }}
           containerAppName: telegraf
-          resourceGroup: iiot-poc-rg
-          containerAppEnvironment: iiot-env-public
-          imageToBuild: ${{ env.ACR_NAME }}.azurecr.io/telegraf:${{ github.sha }}
+          resourceGroup: ${{ env.RG }}
+          containerAppEnvironment: ${{ env.ENV_NAME }}
+          imageToBuild: ${{ env.ACR_NAME }}.azurecr.io/iiot-telegraf:${{ github.sha }}
           yamlConfigPath: infra/telegraf.rendered.yaml
 
 
