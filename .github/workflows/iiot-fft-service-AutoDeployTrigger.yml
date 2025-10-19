@@ -50,7 +50,6 @@ jobs:
           # Azure target details
           containerAppName: iiot-fft-service
           resourceGroup: iiot-poc-rg
-          registryUrl: iiotpocacr.azurecr.io
 
           # Image to build (commit SHA as tag)
           imageToBuild: iiotpocacr.azurecr.io/iiot-fft-service:${{ github.sha }}
@@ -62,4 +61,5 @@ jobs:
               "tenantId": "${{ secrets.IIOTFFTSERVICE_AZURE_TENANT_ID }}",
               "subscriptionId": "${{ secrets.IIOTFFTSERVICE_AZURE_SUBSCRIPTION_ID }}"
             }
+
 
