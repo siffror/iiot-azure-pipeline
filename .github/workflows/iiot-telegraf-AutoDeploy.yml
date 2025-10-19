@@ -1,4 +1,5 @@
 name: Auto deploy iiot-telegraf
+
 on:
   push:
     branches: [ main ]
@@ -14,32 +15,66 @@ jobs:
     permissions:
       id-token: write
       contents: read
+
+    env:
+      RG: iiot-poc-rg
+      APP: iiot-telegraf
+      ENV_NAME: iiot-env-public
+      ACR_NAME: iiotpocacr
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: azure/login@v2
+      # 1) Pull repository
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2) Azure login with OIDC (no secrets in repo)
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
         with:
           client-id: ${{ secrets.IIOTFFTSERVICE_AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.IIOTFFTSERVICE_AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.IIOTFFTSERVICE_AZURE_SUBSCRIPTION_ID }}
+
+      # 3) Ensure the Container App exists (first run) so we can attach secrets
+      #    Creates a tiny placeholder app with no ingress if it does not exist.
+      - name: Ensure app exists (first run)
+        run: |
+          az containerapp show -g "$RG" -n "$APP" >/dev/null 2>&1 || \
+          az containerapp create -g "$RG" -n "$APP" \
+            --environment "$ENV_NAME" \
+            --image mcr.microsoft.com/azuredocs/containerapps-helloworld:latest \
+            --ingress disabled
+
+      # 4) Set/Update secrets required by the app (must exist before deploy uses secretRef)
+      #    INFLUXDB_ADMIN_TOKEN must be configured in GitHub repo secrets.
+      - name: Set app secrets
+        run: |
+          az containerapp secret set -g "$RG" -n "$APP" \
+            --secrets influxdb-admin-token='${{ secrets.INFLUXDB_ADMIN_TOKEN }}'
+
+      # 5) Render the YAML to pin image tag to the current commit SHA
       - name: Render YAML tag
         run: |
           cp infra/iiot-telegraf.yaml infra/iiot-telegraf.rendered.yaml
           sed -i "s|__TAG__|${{ github.sha }}|g" infra/iiot-telegraf.rendered.yaml
           cat infra/iiot-telegraf.rendered.yaml
+
+      # 6) Build container, push to ACR, and deploy to ACA using the rendered YAML
       - name: Build & Deploy Telegraf (ACA)
         uses: azure/container-apps-deploy-action@v2
         with:
-          appSourcePath: ${{ github.workspace }}/telegraf
-          dockerfilePath: Dockerfile
-          acrName: iiotpocacr
-          containerAppName: iiot-telegraf
-          resourceGroup: iiot-poc-rg
-          containerAppEnvironment: iiot-env-public
-          imageToBuild: iiotpocacr.azurecr.io/iiot-telegraf:${{ github.sha }}
+          appSourcePath: ${{ github.workspace }}/telegraf         # build context
+          dockerfilePath: Dockerfile                               # relative to appSourcePath
+          acrName: ${{ env.ACR_NAME }}
+          containerAppName: ${{ env.APP }}
+          resourceGroup: ${{ env.RG }}
+          containerAppEnvironment: ${{ env.ENV_NAME }}
+          imageToBuild: ${{ env.ACR_NAME }}.azurecr.io/iiot-telegraf:${{ github.sha }}
           yamlConfigPath: infra/iiot-telegraf.rendered.yaml
+
+      # 7) Optional: clean up old inactive revisions to keep the environment tidy
       - name: Cleanup old inactive revisions
         run: |
-          az containerapp revision list -g iiot-poc-rg -n iiot-telegraf \
+          az containerapp revision list -g "$RG" -n "$APP" \
             --query "[?properties.active==\`false\`].name" -o tsv | \
-          xargs -r -I {} az containerapp revision delete \
-            -g iiot-poc-rg -n iiot-telegraf --revision {} --yes
+          xargs -r -I {} az containerapp revision delete -g "$RG" -n "$APP" --revision {} --yes
