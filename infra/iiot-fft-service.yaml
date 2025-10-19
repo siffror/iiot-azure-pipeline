@@ -1,6 +1,7 @@
 type: Microsoft.App/containerApps
 name: iiot-fft-service
 properties:
+  environmentId: /subscriptions/5e58abe7-2302-449a-a7a2-35f2b3c4b886/resourceGroups/iiot-poc-rg/providers/Microsoft.App/managedEnvironments/iiot-env-public
   configuration:
     ingress: null
   template:
