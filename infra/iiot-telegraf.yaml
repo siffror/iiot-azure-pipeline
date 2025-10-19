@@ -13,9 +13,9 @@ properties:
           - name: INFLUX_URL
             value: http://iiot-influxdb:8086
           - name: INFLUX_ORG
-            value: iiot-org
-          - name: INFLUX_BUCKET
             value: iiot
+          - name: INFLUX_BUCKET
+            value: vibration
           - name: INFLUX_TOKEN
             secretRef: influxdb-admin-token
           - name: MQTT_URL
