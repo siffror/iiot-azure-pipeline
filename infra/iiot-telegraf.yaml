@@ -1,5 +1,5 @@
 type: Microsoft.App/containerApps
-name: iiot-telegraf
+name: telegraf
 properties:
   environmentId: /subscriptions/5e58abe7-2302-449a-a7a2-35f2b3c4b886/resourceGroups/iiot-poc-rg/providers/Microsoft.App/managedEnvironments/iiot-env-public
   configuration:
@@ -7,8 +7,8 @@ properties:
     # No ingress (not serving traffic) – probes går ändå direkt mot containern
   template:
     containers:
-      - name: iiot-telegraf
-        image: iiotpocacr.azurecr.io/iiot-telegraf:__TAG__
+      - name: telegraf
+        image: iiotpocacr.azurecr.io/telegraf:__TAG__
         env:
           - name: MQTT_URL
             value: tcp://iiot-mosquitto:1883
