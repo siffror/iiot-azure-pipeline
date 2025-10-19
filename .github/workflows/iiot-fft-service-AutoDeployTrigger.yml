@@ -1,5 +1,4 @@
 name: Trigger auto deployment for iiot-fft-service
-
 on:
   push:
     branches: [ main ]
@@ -15,46 +14,32 @@ jobs:
     permissions:
       id-token: write
       contents: read
-
     steps:
-      # 1) Checkout
-      - name: Checkout source code
-        uses: actions/checkout@v4
-
-      # 2) Azure login via OIDC
-      - name: Azure Login (OIDC)
-        uses: azure/login@v2
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
         with:
           client-id: ${{ secrets.IIOTFFTSERVICE_AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.IIOTFFTSERVICE_AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.IIOTFFTSERVICE_AZURE_SUBSCRIPTION_ID }}
-
-      # 3) Render YAML (ersätt __TAG__ -> commit SHA)
       - name: Render infra YAML with image tag
         run: |
           cp infra/iiot-fft-service.yaml infra/iiot-fft-service.rendered.yaml
           sed -i "s|__TAG__|${{ github.sha }}|g" infra/iiot-fft-service.rendered.yaml
-          echo "Rendered YAML:"
           cat infra/iiot-fft-service.rendered.yaml
-
-      # 4) Build, push (ACR) och deploy (ACA)
       - name: Build and deploy to Azure Container Apps
         uses: azure/container-apps-deploy-action@v2
         with:
           appSourcePath: ${{ github.workspace }}/fft_service
           dockerfilePath: Dockerfile
-          acrName: iiotpocacr                     # ACR auth via OIDC
+          acrName: iiotpocacr
           containerAppName: iiot-fft-service
           resourceGroup: iiot-poc-rg
           imageToBuild: iiotpocacr.azurecr.io/iiot-fft-service:${{ github.sha }}
           yamlConfigPath: infra/iiot-fft-service.rendered.yaml
-
-      # 5) (Optional) Städa bort inaktiva revisioner
       - name: Clean up old inactive revisions
         run: |
-          echo "Cleaning up inactive revisions..."
           az containerapp revision list \
             -g iiot-poc-rg -n iiot-fft-service \
-            --query "[?active==\`false\`].name" -o tsv | \
+            --query "[?properties.active==\`false\`].name" -o tsv | \
           xargs -r -I {} az containerapp revision delete \
-            -g iiot-poc-rg -n iiot-fft-service --name {} --yes
+            -g iiot-poc-rg -n iiot-fft-service --revision {} --yes
