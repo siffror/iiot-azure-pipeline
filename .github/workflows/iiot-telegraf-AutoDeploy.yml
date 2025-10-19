@@ -45,8 +45,9 @@ jobs:
             --image mcr.microsoft.com/azuredocs/containerapps-helloworld:latest \
             --ingress internal
 
-      # 3.1) Validate that the GitHub secret is present (prints length only)
+      # 3.1) ⛔️ Validate required secret (A-vägen) – kör INTE om SECRET_SOURCE=kv
       - name: Validate required secret
+        if: ${{ vars.SECRET_SOURCE != 'kv' }}
         shell: bash
         run: |
           TOK='${{ secrets.INFLUXDB_ADMIN_TOKEN }}'
@@ -55,8 +56,9 @@ jobs:
           fi
           echo "INFLUXDB_ADMIN_TOKEN length: ${#TOK}"
 
-      # 4) Set/Update secret on the app (trim CR/LF to avoid invalid value)
+      # 4) ⛔️ Sätt app-secrets (A-vägen) – kör INTE om SECRET_SOURCE=kv
       - name: Set app secrets
+        if: ${{ vars.SECRET_SOURCE != 'kv' }}
         shell: bash
         run: |
           CLEAN_TOKEN="$(printf '%s' '${{ secrets.INFLUXDB_ADMIN_TOKEN }}' | tr -d '\r\n')"
@@ -83,6 +85,13 @@ jobs:
           containerAppEnvironment: ${{ env.ENV_NAME }}
           imageToBuild: ${{ env.ACR_NAME }}.azurecr.io/iiot-telegraf:${{ github.sha }}
           yamlConfigPath: infra/iiot-telegraf.rendered.yaml
+
+      # 6.1) ✅ Pinna env-mappningen till KV-secreten i ACA (ingen skapning av secret)
+      - name: Map INFLUX_TOKEN to existing KV-backed secret
+        shell: bash
+        run: |
+          az containerapp update -g "$RG" -n "$APP" \
+            --set-env-vars INFLUX_TOKEN=secretref:influxdb-admin-token
 
       # 7) Clean up old inactive revisions
       - name: Cleanup old inactive revisions
