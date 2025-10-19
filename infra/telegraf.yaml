@@ -13,7 +13,7 @@ properties:
   template:
     containers:
       - name: telegraf
-        image: __ACR__/telegraf:__TAG__
+        image: __ACR__/iiot-telegraf:__TAG__
         env:
           - name: MQTT_URL
             value: tcp://mosquitto:1883
