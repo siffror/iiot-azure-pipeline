@@ -1,0 +1,50 @@
+type: Microsoft.App/containerApps
+name: iiot-grafana
+properties:
+  configuration:
+    activeRevisionsMode: Single
+    ingress:
+      external: true
+      targetPort: 3000
+      transport: auto
+      traffic:
+        - latestRevision: true
+          weight: 100
+  template:
+    containers:
+      - name: iiot-grafana
+        image: iiotpocacr.azurecr.io/iiot-grafana:__TAG__
+        env:
+          - name: GF_SECURITY_ADMIN_USER
+            value: admin
+          - name: GF_SECURITY_ADMIN_PASSWORD
+            secretRef: grafana-admin-pass
+          # Influx (used by provisioning file)
+          - name: INFLUX_URL
+            value: http://iiot-influxdb:8086
+          - name: INFLUX_ORG
+            value: iiot-org
+          - name: INFLUX_BUCKET
+            value: iiot
+          - name: INFLUX_TOKEN
+            secretRef: influxdb-token
+        volumeMounts:
+          - volumeName: grafana-data
+            mountPath: /var/lib/grafana
+        probes:
+          - type: liveness
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          - type: readiness
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+    volumes:
+      - name: grafana-data
+        storageType: AzureFile
+        storageName: grafana-fileshare
