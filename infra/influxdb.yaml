@@ -1,56 +1,56 @@
- type: Microsoft.App/containerApps
- name: influxdb
- properties:
-   environmentId: /subscriptions/5e58abe7-2302-449a-a7a2-35f2b3c4b886/resourceGroups/iiot-poc-rg/providers/Microsoft.App/managedEnvironments/iiot-env-public
-   configuration:
-     activeRevisionsMode: Single
-     ingress:
-       external: false
-       targetPort: 8086
-       transport: auto
-       traffic:
-         - latestRevision: true
-           weight: 100
-   template:
-     containers:
-       - name: influxdb
-         image: influxdb:2.7
-         env:
-           - name: DOCKER_INFLUXDB_INIT_MODE
-             value: setup
-           - name: DOCKER_INFLUXDB_INIT_USERNAME
-             secretRef: influxdb-admin-user
-           - name: DOCKER_INFLUXDB_INIT_PASSWORD
-             secretRef: influxdb-admin-pass
-           - name: DOCKER_INFLUXDB_INIT_ORG
-             value: iiot-org
-           - name: DOCKER_INFLUXDB_INIT_BUCKET
-             value: iiot
-           - name: DOCKER_INFLUXDB_INIT_RETENTION
-             value: 30d
-           - name: DOCKER_INFLUXDB_INIT_ADMIN_TOKEN
-             secretRef: influxdb-admin-token
-         volumeMounts:
-           - volumeName: influx-empty
-             mountPath: /var/lib/influxdb2
-         probes:
-           - type: readiness
-             httpGet:
-               path: /health
-               port: 8086
-             initialDelaySeconds: 15
-             periodSeconds: 10
-             timeoutSeconds: 5
-             failureThreshold: 3
-             successThreshold: 1
-           - type: liveness
-             httpGet:
-               path: /health
-               port: 8086
-             initialDelaySeconds: 30
-             periodSeconds: 10
-             timeoutSeconds: 5
-             failureThreshold: 3
-     volumes:
-       - name: influx-empty
-         storageType: EmptyDir
+type: Microsoft.App/containerApps
+name: influxdb
+properties:
+  environmentId: /subscriptions/5e58abe7-2302-449a-a7a2-35f2b3c4b886/resourceGroups/iiot-poc-rg/providers/Microsoft.App/managedEnvironments/iiot-env-public
+  configuration:
+    activeRevisionsMode: Single
+    ingress:
+      external: false
+      targetPort: 8086
+      transport: auto
+      traffic:
+        - latestRevision: true
+          weight: 100
+  template:
+    containers:
+      - name: influxdb
+        image: influxdb:2.7
+        env:
+          - name: DOCKER_INFLUXDB_INIT_MODE
+            value: setup
+          - name: DOCKER_INFLUXDB_INIT_USERNAME
+            secretRef: influxdb-admin-user
+          - name: DOCKER_INFLUXDB_INIT_PASSWORD
+            secretRef: influxdb-admin-password
+          - name: DOCKER_INFLUXDB_INIT_ORG
+            value: iiot-org
+          - name: DOCKER_INFLUXDB_INIT_BUCKET
+            value: iiot
+          - name: DOCKER_INFLUXDB_INIT_RETENTION
+            value: 30d
+          - name: DOCKER_INFLUXDB_INIT_ADMIN_TOKEN
+            secretRef: influxdb-admin-token
+        volumeMounts:
+          - volumeName: influx-empty
+            mountPath: /var/lib/influxdb2
+        probes:
+          - type: readiness
+            httpGet:
+              path: /health
+              port: 8086
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+          - type: liveness
+            httpGet:
+              path: /health
+              port: 8086
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+    volumes:
+      - name: influx-empty
+        storageType: EmptyDir
