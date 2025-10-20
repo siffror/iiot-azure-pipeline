@@ -6,7 +6,7 @@ properties:
   configuration:
     activeRevisionsMode: Single
     ingress:
-      external: false      # internal only
+      external: false
       targetPort: 1883
       transport: tcp
       traffic:
@@ -16,11 +16,20 @@ properties:
     containers:
       - name: mosquitto
         image: eclipse-mosquitto:2.0
+        env:
+          - name: TZ
+            value: UTC
+          - name: MOSQUITTO_LOG_DEST
+            value: stdout
+        args:
+          - -c
+          - /mosquitto/config/mosquitto.conf
         volumeMounts:
           - volumeName: mosquitto-data
             mountPath: /mosquitto/data
           - volumeName: mosquitto-conf
             mountPath: /mosquitto/config
+            readOnly: true
         probes:
           - type: liveness
             tcpSocket:
@@ -38,5 +47,5 @@ properties:
         storageType: AzureFile
         storageName: mosquitto-data-storage
       - name: mosquitto-conf
-        storageType: AzureFile
-        storageName: mosquitto-conf-storage
+        storageType: Secret
+        secretName: mosquitto-conf
