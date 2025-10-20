@@ -1,7 +1,7 @@
 apiVersion: 2024-08-02-preview
 type: Microsoft.App/containerApps
 name: grafana
-location: North Europe   # ✅ exakt regionsträng
+location: North Europe
 
 properties:
   managedEnvironmentId: /subscriptions/5e58abe7-2302-449a-a7a2-35f2b3c4b886/resourceGroups/iiot-poc-rg/providers/Microsoft.App/managedEnvironments/iiot-env-public
@@ -15,7 +15,6 @@ properties:
       traffic:
         - latestRevision: true
           weight: 100
-    # Inga secrets här – vi sätter dem i workflow-steget före deploy
 
   template:
     containers:
@@ -25,7 +24,7 @@ properties:
           - name: GF_SECURITY_ADMIN_USER
             value: admin
           - name: GF_SECURITY_ADMIN_PASSWORD
-            secretRef: grafana-admin-password
+            secretRef: grafana-admin-password     # ✅ referens, inget värde här
           - name: GF_AUTH_ANONYMOUS_ENABLED
             value: "true"
           - name: GF_AUTH_ANONYMOUS_ORG_ROLE
@@ -50,11 +49,11 @@ properties:
             successThreshold: 1
         volumeMounts:
           - volumeName: grafana-data
-            mountPath: /var/lib/grafana  # SQLite ligger här
+            mountPath: /var/lib/grafana   # SQLite här (EmptyDir nu)
 
     volumes:
       - name: grafana-data
-        storageType: EmptyDir  # byt till NfsAzureFile senare för persistens
+        storageType: EmptyDir             # byt till NfsAzureFile senare för persistens
 
     scale:
       minReplicas: 1
