@@ -3,7 +3,6 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'grafana/**'
       - 'infra/grafana.yaml'
       - '.github/workflows/grafana-AutoDeploy.yml'
   workflow_dispatch:
@@ -14,29 +13,36 @@ jobs:
     permissions:
       id-token: write
       contents: read
+
     steps:
       - uses: actions/checkout@v4
-      - uses: azure/login@v2
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
         with:
           client-id: ${{ secrets.IIOTFFTSERVICE_AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.IIOTFFTSERVICE_AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.IIOTFFTSERVICE_AZURE_SUBSCRIPTION_ID }}
-      - name: Render YAML tag
+
+      # Sätt secret i appen INNAN deploy (hämtas från GitHub Secret)
+      - name: Ensure Grafana admin secret exists
         run: |
-          cp infra/grafana.yaml infra/grafana.rendered.yaml
-          sed -i "s|__TAG__|${{ github.sha }}|g" infra/grafana.rendered.yaml
-          cat infra/grafana.rendered.yaml
-      - name: Build & Deploy Grafana (ACA)
+          az extension add -n containerapp --upgrade
+          az containerapp secret set \
+            -g iiot-poc-rg -n grafana \
+            --secrets grafana-admin-password="${{ secrets.GRAFANA_ADMIN_PASSWORD }}"
+
+      # Deploya endast YAML (inga build-steg, ingen ACR)
+      - name: Deploy Grafana (YAML only)
         uses: azure/container-apps-deploy-action@v2
         with:
-          appSourcePath: ${{ github.workspace }}/grafana
-          dockerfilePath: grafana/Dockerfile
-          acrName: iiotpocacr
-          containerAppName: grafana
           resourceGroup: iiot-poc-rg
+          containerAppName: grafana
           containerAppEnvironment: iiot-env-public
-          imageToBuild: iiotpocacr.azurecr.io/grafana:${{ github.sha }}
-          yamlConfigPath: infra/grafana.rendered.yaml
+          yamlConfigPath: infra/grafana.yaml
+          disableTelemetry: false
+
+      # (Valfritt) städa bort inaktiva revisioner
       - name: Cleanup old inactive revisions
         run: |
           az containerapp revision list -g iiot-poc-rg -n grafana \
