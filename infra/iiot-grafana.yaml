@@ -7,19 +7,17 @@ properties:
   configuration:
     activeRevisionsMode: Single
     ingress:
-      external: true              # = “Accepting traffic from anywhere”
+      external: true
       targetPort: 3000
-      transport: auto             # HTTP(S) hanteras automatiskt
-      allowInsecure: false        # tvinga TLS på *.azurecontainerapps.io
+      transport: auto
+      allowInsecure: false
       traffic:
         - latestRevision: true
           weight: 100
     registries:
       - server: iiotpocacr.azurecr.io
-        identity: system          # system assigned MI för ACR-pull
-    secrets:
-      - name: gf-admin-pass       # måste vara lowercase + '-' (inte '_')
-        value: REPLACE_WITH_STRONG_PASSWORD
+        identity: system        # System-assigned MI för ACR-pull
+    # inga secrets här – de finns redan i Azure
 
   template:
     containers:
@@ -29,7 +27,7 @@ properties:
           - name: GF_SECURITY_ADMIN_USER
             value: admin
           - name: GF_SECURITY_ADMIN_PASSWORD
-            secretRef: gf-admin-pass
+            secretRef: grafana-admin-password  
           - name: GF_AUTH_ANONYMOUS_ENABLED
             value: "true"
           - name: GF_AUTH_ANONYMOUS_ORG_ROLE
@@ -65,11 +63,11 @@ properties:
 
     volumes:
       - name: grafana-data
-        storageType: AzureFile          
-        storageName: grafana-data-storage
+        storageType: AzureFile
+        storageName: grafana-data-storage              
       - name: grafana-provisioning
         storageType: AzureFile
-        storageName: grafana-provisioning-storage
+        storageName: grafana-provisioning-storage      
 
     scale:
       minReplicas: 1
