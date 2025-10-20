@@ -1,0 +1,35 @@
+name: Auto deploy feature_service
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'infra/iiot-feature-service.yaml'
+      - 'feature_service/**'
+  workflow_dispatch:
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.IIOTFFTSERVICE_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.IIOTFFTSERVICE_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.IIOTFFTSERVICE_AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build and push image
+        uses: azure/container-apps-deploy-action@v2
+        with:
+          resourceGroup: iiot-poc-rg
+          containerAppName: feature-service
+          containerAppEnvironment: iiot-env-public
+          imageToBuild: iiotpocacr.azurecr.io/feature-service:latest
+          dockerfilePath: feature_service/Dockerfile
+          appSourcePath: feature_service
+          yamlConfigPath: infra/iiot-feature-service.yaml
