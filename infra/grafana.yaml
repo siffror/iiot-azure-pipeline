@@ -17,6 +17,7 @@ properties:
           weight: 100
 
   template:
+    revisionSuffix: "vol-002"
     containers:
       - name: grafana
         image: grafana/grafana:10.4.2
@@ -24,7 +25,7 @@ properties:
           - name: GF_SECURITY_ADMIN_USER
             value: admin
           - name: GF_SECURITY_ADMIN_PASSWORD
-            secretRef: grafana-admin-password     # ✅ referens, inget värde här
+            secretRef: grafana-admin-password
           - name: GF_AUTH_ANONYMOUS_ENABLED
             value: "true"
           - name: GF_AUTH_ANONYMOUS_ORG_ROLE
@@ -33,27 +34,18 @@ properties:
             value: "false"
           - name: GF_SERVER_HTTP_PORT
             value: "3000"
-        probes:
-          - type: liveness
-            httpGet: { path: /api/health, port: 3000 }
-            initialDelaySeconds: 30
-            periodSeconds: 15
-            timeoutSeconds: 5
-            failureThreshold: 3
-            successThreshold: 1
-          - type: readiness
-            httpGet: { path: /api/health, port: 3000 }
-            initialDelaySeconds: 10
-            periodSeconds: 10
-            timeoutSeconds: 3
-            successThreshold: 1
         volumeMounts:
           - volumeName: grafana-data
-            mountPath: /var/lib/grafana   # SQLite här (EmptyDir nu)
-
+            mountPath: /var/lib/grafana
+          - volumeName: grafana-provisioning
+            mountPath: /etc/grafana/provisioning
     volumes:
       - name: grafana-data
-        storageType: EmptyDir             # byt till NfsAzureFile senare för persistens
+        storageType: AzureFile
+        storageName: grafana-storage                # välj din faktiska storage
+      - name: grafana-provisioning
+        storageType: AzureFile
+        storageName: grafana-provisioning-storage   # välj din faktiska storage
 
     scale:
       minReplicas: 1
