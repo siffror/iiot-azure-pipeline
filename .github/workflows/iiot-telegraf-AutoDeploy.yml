@@ -33,6 +33,7 @@ jobs:
           tenant-id: ${{ secrets.IIOTFFTSERVICE_AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.IIOTFFTSERVICE_AZURE_SUBSCRIPTION_ID }}
 
+      # Create app once (internal) so MI exists before configuring registry
       - name: Ensure app exists (first run)
         shell: bash
         run: |
@@ -42,7 +43,7 @@ jobs:
             --image mcr.microsoft.com/azuredocs/containerapps-helloworld:latest \
             --ingress internal
 
-      # 🔄 Vänta tills provisioning är klar (hindrar 'operation in progress')
+      # Wait until system-assigned identity is issued
       - name: Wait for system identity to be ready
         shell: bash
         run: |
@@ -55,22 +56,20 @@ jobs:
             echo "Waiting for system MI..."; sleep 5
             if [ $i -eq 30 ]; then echo "Timeout waiting for MI"; exit 1; fi
           done
-        # Allmän felsökning: vänta tills appen är klar innan uppdateringar görs. :contentReference[oaicite:2]{index=2}
 
-      # ⚙️ Bind ACR med system-MI (RBAC är redan satt manuellt)
+      # Bind ACR to app using system identity (AcrPull must already be granted to env/app MI)
       - name: Configure ACR registry with system identity
         shell: bash
         run: |
           ACR_SERVER="${ACR_NAME}.azurecr.io"
-          az containerapp identity assign -g "$RG" -n "$APP" --system-assigned      # aktivera MI :contentReference[oaicite:3]{index=3}
-          az containerapp registry set -g "$RG" -n "$APP" --server "$ACR_SERVER" --identity system  # bind registry :contentReference[oaicite:4]{index=4}
+          az containerapp identity assign -g "$RG" -n "$APP" --system-assigned
+          az containerapp registry set -g "$RG" -n "$APP" --server "$ACR_SERVER" --identity system
 
-      # 🔐 Säkerställ att KV-referensen finns i appen innan YAML valideras
-      - name: Ensure KV secret exists (telegraf) with retry + versionless URL
+      # Use Key Vault secret reference (preferred) OR GitHub secret fallback
+      - name: Ensure KV secret reference (influxdb-admin-token) exists
         if: ${{ vars.SECRET_SOURCE == 'kv' }}
         shell: bash
         env:
-          # VIKTIGT: oversionerad URL (ingen GUID på slutet)
           KV_INFLUX_TOKEN_URL: https://iiotpockv.vault.azure.net/secrets/influxdb-admin-token
         run: |
           set -euo pipefail
@@ -83,11 +82,9 @@ jobs:
             fi
             echo "Retry $i/12 adding KV secret reference..."; sleep 10
           done
-          echo "Failed to add KV secret reference after retries"; exit 1
-        # Syntax: key=keyvaultref:<url>,identityref:<identity> :contentReference[oaicite:5]{index=5}
+          echo "Failed to add KV secret reference"; exit 1
 
-      # ⛔️ Skippa GitHub-secret-vägen om vi kör KV
-      - name: Validate required secret
+      - name: Validate required secret (GitHub fallback)
         if: ${{ vars.SECRET_SOURCE != 'kv' }}
         shell: bash
         run: |
@@ -97,7 +94,7 @@ jobs:
           fi
           echo "INFLUXDB_ADMIN_TOKEN length: ${#TOK}"
 
-      - name: Set app secrets
+      - name: Set app secrets (GitHub fallback)
         if: ${{ vars.SECRET_SOURCE != 'kv' }}
         shell: bash
         run: |
@@ -105,33 +102,31 @@ jobs:
           az containerapp secret set -g "$RG" -n "$APP" \
             --secrets influxdb-admin-token="$CLEAN_TOKEN"
 
-      - name: Render YAML tag + ACR
+      - name: Render YAML (image tag + registry)
         run: |
           cp infra/telegraf.yaml infra/telegraf.rendered.yaml
           sed -i "s|__TAG__|${{ github.sha }}|g" infra/telegraf.rendered.yaml
           sed -i "s|__ACR__|${{ env.ACR_NAME }}.azurecr.io|g" infra/telegraf.rendered.yaml
-          grep 'image:' -n infra/telegraf.rendered.yaml
-      
-            
+          echo "Rendered image line(s):"
+          grep -n 'image:' infra/telegraf.rendered.yaml
+
       - name: Build & Deploy Telegraf (ACA)
         uses: azure/container-apps-deploy-action@v2
         with:
           appSourcePath: ${{ github.workspace }}/telegraf
           dockerfilePath: Dockerfile
           acrName: ${{ env.ACR_NAME }}
-          containerAppName: telegraf
+          containerAppName: ${{ env.APP }}
           resourceGroup: ${{ env.RG }}
           containerAppEnvironment: ${{ env.ENV_NAME }}
           imageToBuild: ${{ env.ACR_NAME }}.azurecr.io/iiot-telegraf:${{ github.sha }}
           yamlConfigPath: infra/telegraf.rendered.yaml
 
-
-      - name: Map INFLUX_TOKEN to existing KV-backed secret
+      - name: Map INFLUX_TOKEN to secretref after deploy
         shell: bash
         run: |
           az containerapp update -g "$RG" -n "$APP" \
             --set-env-vars INFLUX_TOKEN=secretref:influxdb-admin-token
-        # CLI env->secret ska använda 'secretref:' :contentReference[oaicite:6]{index=6}
 
       - name: Cleanup old inactive revisions
         shell: bash
