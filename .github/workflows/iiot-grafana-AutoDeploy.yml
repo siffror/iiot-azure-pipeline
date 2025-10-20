@@ -4,7 +4,7 @@ on:
     branches: [ main ]
     paths:
       - 'infra/grafana.yaml'
-      - '.github/workflows/grafana-AutoDeploy.yml'
+      - '.github/workflows/iiot-grafana-AutoDeploy.yml'   # ✅ rätt filnamn
   workflow_dispatch:
 
 jobs:
@@ -24,7 +24,7 @@ jobs:
           tenant-id: ${{ secrets.IIOTFFTSERVICE_AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.IIOTFFTSERVICE_AZURE_SUBSCRIPTION_ID }}
 
-      # Sätt secret i appen INNAN deploy (hämtas från GitHub Secret)
+      # Sätt/uppdatera hemlighet i Grafana-appen (matchar secretRef i YAML)
       - name: Ensure Grafana admin secret exists
         run: |
           az extension add -n containerapp --upgrade
@@ -32,13 +32,13 @@ jobs:
             -g iiot-poc-rg -n grafana \
             --secrets grafana-admin-password="${{ secrets.GRAFANA_ADMIN_PASSWORD }}"
 
-      # Deploya endast YAML (inga build-steg, ingen ACR)
+      # Deploya via YAML (ingen build/ACR här)
       - name: Deploy Grafana (YAML only)
         uses: azure/container-apps-deploy-action@v2
         with:
           resourceGroup: iiot-poc-rg
           containerAppName: grafana
-          containerAppEnvironment: iiot-env-public
+          environment: iiot-env-public                # ✅ rätt nyckel
           yamlConfigPath: infra/grafana.yaml
           disableTelemetry: false
 
