@@ -1,51 +1,76 @@
 type: Microsoft.App/containerApps
-name: iiot-grafana
+name: grafana
+location: northeurope
 properties:
-  environmentId: /subscriptions/5e58abe7-2302-449a-a7a2-35f2b3c4b886/resourceGroups/iiot-poc-rg/providers/Microsoft.App/managedEnvironments/iiot-env-public
+  managedEnvironmentId: /subscriptions/5e58abe7-2302-449a-a7a2-35f2b3c4b886/resourceGroups/iiot-poc-rg/providers/Microsoft.App/managedEnvironments/iiot-env-public
+
   configuration:
     activeRevisionsMode: Single
     ingress:
-      external: true
+      external: true              # = “Accepting traffic from anywhere”
       targetPort: 3000
-      transport: auto
+      transport: auto             # HTTP(S) hanteras automatiskt
+      allowInsecure: false        # tvinga TLS på *.azurecontainerapps.io
       traffic:
         - latestRevision: true
           weight: 100
+    registries:
+      - server: iiotpocacr.azurecr.io
+        identity: system          # system assigned MI för ACR-pull
+    secrets:
+      - name: gf-admin-pass       # måste vara lowercase + '-' (inte '_')
+        value: REPLACE_WITH_STRONG_PASSWORD
+
   template:
     containers:
-      - name: iiot-grafana
-        image: iiotpocacr.azurecr.io/iiot-grafana:__TAG__
+      - name: grafana
+        image: iiotpocacr.azurecr.io/grafana:v1
         env:
           - name: GF_SECURITY_ADMIN_USER
             value: admin
           - name: GF_SECURITY_ADMIN_PASSWORD
-            secretRef: grafana-admin-pass
-          # Influx (used by provisioning file)
-          - name: INFLUX_URL
-            value: http://iiot-influxdb:8086
-          - name: INFLUX_ORG
-            value: iiot-org
-          - name: INFLUX_BUCKET
-            value: iiot
-          - name: INFLUX_TOKEN
-            secretRef: influxdb-token
-        volumeMounts:
-          - volumeName: grafana-data
-            mountPath: /var/lib/grafana
+            secretRef: gf-admin-pass
+          - name: GF_AUTH_ANONYMOUS_ENABLED
+            value: "true"
+          - name: GF_AUTH_ANONYMOUS_ORG_ROLE
+            value: Viewer
+          - name: GF_USERS_ALLOW_SIGN_UP
+            value: "false"
+          - name: GF_SERVER_HTTP_PORT
+            value: "3000"
         probes:
           - type: liveness
             httpGet:
               path: /api/health
               port: 3000
-            initialDelaySeconds: 10
+            initialDelaySeconds: 30
             periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
           - type: readiness
             httpGet:
               path: /api/health
               port: 3000
-            initialDelaySeconds: 5
+            initialDelaySeconds: 10
             periodSeconds: 10
+            timeoutSeconds: 3
+            successThreshold: 1
+        volumeMounts:
+          - volumeName: grafana-data
+            mountPath: /var/lib/grafana
+          - volumeName: grafana-provisioning
+            mountPath: /etc/grafana/provisioning
+            readOnly: true
+
     volumes:
       - name: grafana-data
+        storageType: AzureFile          
+        storageName: grafana-data-storage
+      - name: grafana-provisioning
         storageType: AzureFile
-        storageName: grafana-fileshare
+        storageName: grafana-provisioning-storage
+
+    scale:
+      minReplicas: 1
+      maxReplicas: 1
