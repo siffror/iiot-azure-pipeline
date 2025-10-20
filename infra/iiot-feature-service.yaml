@@ -4,9 +4,16 @@ name: feature-service
 location: northeurope
 properties:
   managedEnvironmentId: /subscriptions/5e58abe7-2302-449a-a7a2-35f2b3c4b886/resourceGroups/iiot-poc-rg/providers/Microsoft.App/managedEnvironments/iiot-env-public
+
   configuration:
     activeRevisionsMode: Single
+    ingress:
+      external: false            # Ingen extern åtkomst (worker-app)
+      targetPort: 0
+      allowInsecure: false
+
   template:
+    revisionSuffix: "v1.0"
     containers:
       - name: feature-service
         image: iiotpocacr.azurecr.io/feature-service:latest
@@ -21,6 +28,23 @@ properties:
             value: features
           - name: INFLUX_TOKEN
             secretRef: influxdb-admin-token
+        resources:
+          cpu: 0.5
+          memory: 1Gi
+        volumeMounts:
+          - volumeName: data
+            mountPath: /data
+          - volumeName: models
+            mountPath: /models
+
+    volumes:
+      - name: data
+        storageType: AzureFile
+        storageName: data
+      - name: models
+        storageType: AzureFile
+        storageName: models
+
     scale:
       minReplicas: 1
       maxReplicas: 1
