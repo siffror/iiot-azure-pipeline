@@ -37,10 +37,12 @@ jobs:
 
       - name: Build & push image to ACR
         run: |
-          IMAGE=iiotpocacr.azurecr.io/feature-service:${{ github.sha }}
-          docker build -f feature_service/Dockerfile -t $IMAGE feature_service
-          docker push $IMAGE
-          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
+          REPO=iiotpocacr.azurecr.io/feature-service   # <— OBS: bindestreck. Byt till feature_service om ditt ACR-repo heter så.
+          docker build -f feature_service/Dockerfile -t $REPO:${{ github.sha }} -t $REPO:latest feature_service
+          docker push $REPO:${{ github.sha }}
+          docker push $REPO:latest
+          echo "IMAGE=$REPO:${{ github.sha }}" >> $GITHUB_ENV
+          
 
       # Deploy via YAML + sätt app-secrets här (ingen separat CLI, ingen race)
       - name: Deploy feature-service (YAML)
