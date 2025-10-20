@@ -3,18 +3,21 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'infra/iiot-feature-service.yaml'
       - 'feature_service/**'
+      - 'infra/iiot-feature-service.yaml'
+      - '.github/workflows/iiot-feature-AutoDeploy.yml'
   workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
   build-deploy:
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Azure login (OIDC)
         uses: azure/login@v2
@@ -23,13 +26,44 @@ jobs:
           tenant-id: ${{ secrets.IIOTFFTSERVICE_AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.IIOTFFTSERVICE_AZURE_SUBSCRIPTION_ID }}
 
-      - name: Build and push image
+      # (Once per repo) Logga in mot ACR för push
+      - name: ACR login
+        run: az acr login -n iiotpocacr
+
+      - name: Build & push image to ACR
+        run: |
+          IMAGE=iiotpocacr.azurecr.io/feature-service:${{ github.sha }}
+          docker build -f feature_service/Dockerfile -t $IMAGE feature_service
+          docker push $IMAGE
+          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
+
+      # Sätt/uppdatera app-secret med guard (undvik tomt värde)
+      - name: Ensure Influx admin token secret exists
+        run: |
+          if [ -z "${{ secrets.INFLUXDB_ADMIN_TOKEN }}" ]; then
+            echo "ERROR: GitHub secret INFLUXDB_ADMIN_TOKEN is missing or empty."; exit 1
+          fi
+          az extension add -n containerapp --upgrade
+          az containerapp secret set \
+            -g iiot-poc-rg -n feature-service \
+            --secrets influxdb-admin-token="${{ secrets.INFLUXDB_ADMIN_TOKEN }}"
+
+      # Deploy YAML (din fil har managedEnvironmentId + volymer)
+      - name: Deploy feature-service (YAML)
         uses: azure/container-apps-deploy-action@v2
         with:
           resourceGroup: iiot-poc-rg
           containerAppName: feature-service
-          containerAppEnvironment: iiot-env-public
-          imageToBuild: iiotpocacr.azurecr.io/feature-service:latest
-          dockerfilePath: feature_service/Dockerfile
-          appSourcePath: feature_service
           yamlConfigPath: infra/iiot-feature-service.yaml
+          # Ersätt endast bilden i YAML med den vi just byggde
+          # (action patchar image-fältet vid deploy)
+          imageToDeploy: ${{ env.IMAGE }}
+          disableTelemetry: false
+
+      # (Valfritt) Städa gamla inaktiva revisioner
+      - name: Cleanup old inactive revisions
+        run: |
+          az containerapp revision list -g iiot-poc-rg -n feature-service \
+            --query "[?properties.active==\`false\`].name" -o tsv | \
+          xargs -r -I {} az containerapp revision delete \
+            -g iiot-poc-rg -n feature-service --revision {} --yes
