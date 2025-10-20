@@ -31,8 +31,7 @@
            - name: DOCKER_INFLUXDB_INIT_ADMIN_TOKEN
              secretRef: influxdb-admin-token
          volumeMounts:
--          - volumeName: influxdb-data
-+          - volumeName: influx-empty
+           - volumeName: influx-empty
              mountPath: /var/lib/influxdb2
          probes:
            - type: readiness
@@ -53,8 +52,5 @@
              timeoutSeconds: 5
              failureThreshold: 3
      volumes:
--      - name: influxdb-data
--        storageType: AzureFile
--        storageName: influxdb-storage
-+      - name: influx-empty
-+        storageType: EmptyDir
+       - name: influx-empty
+         storageType: EmptyDir
