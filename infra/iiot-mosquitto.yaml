@@ -1,0 +1,42 @@
+type: Microsoft.App/containerApps
+name: mosquitto
+location: northeurope
+properties:
+  managedEnvironmentId: /subscriptions/5e58abe7-2302-449a-a7a2-35f2b3c4b886/resourceGroups/iiot-poc-rg/providers/Microsoft.App/managedEnvironments/iiot-env-public
+  configuration:
+    activeRevisionsMode: Single
+    ingress:
+      external: false      # internal only
+      targetPort: 1883
+      transport: tcp
+      traffic:
+        - latestRevision: true
+          weight: 100
+  template:
+    containers:
+      - name: mosquitto
+        image: eclipse-mosquitto:2.0
+        volumeMounts:
+          - volumeName: mosquitto-data
+            mountPath: /mosquitto/data
+          - volumeName: mosquitto-conf
+            mountPath: /mosquitto/config
+        probes:
+          - type: liveness
+            tcpSocket:
+              port: 1883
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          - type: readiness
+            tcpSocket:
+              port: 1883
+            initialDelaySeconds: 5
+            periodSeconds: 10
+    volumes:
+      - name: mosquitto-data
+        storageType: AzureFile
+        storageName: mosquitto-data-storage
+      - name: mosquitto-conf
+        storageType: AzureFile
+        storageName: mosquitto-conf-storage
