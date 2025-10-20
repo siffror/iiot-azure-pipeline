@@ -1,3 +1,4 @@
+apiVersion: 2024-08-02-preview
 type: Microsoft.App/containerApps
 name: grafana
 location: northeurope
@@ -14,20 +15,17 @@ properties:
       traffic:
         - latestRevision: true
           weight: 100
-    registries:
-      - server: iiotpocacr.azurecr.io
-        identity: system        # System-assigned MI för ACR-pull
-    # inga secrets här – de finns redan i Azure
+    # Ingen ACR behövs när vi använder officiell bild
 
   template:
     containers:
       - name: grafana
-        image: iiotpocacr.azurecr.io/grafana:v1
+        image: grafana/grafana:10.4.2
         env:
           - name: GF_SECURITY_ADMIN_USER
             value: admin
           - name: GF_SECURITY_ADMIN_PASSWORD
-            secretRef: grafana-admin-password  
+            secretRef: grafana-admin-password
           - name: GF_AUTH_ANONYMOUS_ENABLED
             value: "true"
           - name: GF_AUTH_ANONYMOUS_ORG_ROLE
@@ -56,18 +54,10 @@ properties:
             successThreshold: 1
         volumeMounts:
           - volumeName: grafana-data
-            mountPath: /var/lib/grafana
-          - volumeName: grafana-provisioning
-            mountPath: /etc/grafana/provisioning
-            readOnly: true
-
+            mountPath: /var/lib/grafana  # grafana.db (SQLite) -> EmptyDir för att undvika SMB-lås
     volumes:
       - name: grafana-data
-        storageType: AzureFile
-        storageName: grafana-data-storage              
-      - name: grafana-provisioning
-        storageType: AzureFile
-        storageName: grafana-provisioning-storage      
+        storageType: EmptyDir
 
     scale:
       minReplicas: 1
