@@ -13,7 +13,7 @@ properties:
       allowInsecure: false
 
   template:
-    revisionSuffix: "v1.0"
+    revisionSuffix: "v1-0"
     containers:
       - name: feature-service
         image: iiotpocacr.azurecr.io/feature-service:latest
