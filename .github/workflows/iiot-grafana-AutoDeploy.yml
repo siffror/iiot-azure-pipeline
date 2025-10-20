@@ -1,4 +1,4 @@
-name: Auto deploy iiot-grafana
+name: Auto deploy grafana
 on:
   push:
     branches: [ main ]
