@@ -13,16 +13,17 @@ properties:
       allowInsecure: false
 
   template:
+    # (No revisionSuffix to avoid collisions)
     containers:
       - name: feature-service
-        image: iiotpocacr.azurecr.io/feature-service:latest   # kommer override:as av workflow
+        image: iiotpocacr.azurecr.io/feature-service:latest  # will be overridden by workflow with SHA
         env:
           - name: INFLUX_URL
-            value: http://influxdb:8086
+            value: https://influxdb.internal.happyisland-fa52694f.northeurope.azurecontainerapps.io
           - name: INFLUX_ORG
-            value: iiot
+            value: iiot-org
           - name: BUCKET_RAW
-            value: machine_health
+            value: iiot
           - name: BUCKET_FEATURES
             value: features
           - name: INFLUX_TOKEN
