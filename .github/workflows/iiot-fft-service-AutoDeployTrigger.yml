@@ -9,12 +9,13 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: iiot-fft-service
+  group: iiot-fft-service-${{ github.ref_name }}
   cancel-in-progress: true
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     permissions:
       id-token: write
       contents: read
@@ -34,10 +35,9 @@ jobs:
           tenant-id: ${{ secrets.IIOTFFTSERVICE_AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.IIOTFFTSERVICE_AZURE_SUBSCRIPTION_ID }}
 
-      # Login to ACR (action@v2 loggar normalt in åt dig, men vi vill pusha manuellt)
+      # Login to ACR (manual push)
       - name: ACR login
-        run: |
-          az acr login --name iiotpocacr
+        run: az acr login --name iiotpocacr
 
       # Build & push both SHA and latest
       - name: Build (SHA + latest) and push
@@ -47,8 +47,7 @@ jobs:
           docker push "$IMAGE_SHA"
           docker push "$IMAGE_LATEST"
 
-      # (Valfritt) Render infra YAML om den innehåller en __TAG__ placeholder
-      # Om din infra YAML inte innehåller bildreferens kan du hoppa över detta steg
+      # Render infra YAML (only if placeholders exist)
       - name: Render infra YAML with image
         run: |
           cp infra/iiot-fft-service.yaml infra/iiot-fft-service.rendered.yaml
@@ -56,7 +55,7 @@ jobs:
           sed -i "s|__TAG__|${{ github.sha }}|g" infra/iiot-fft-service.rendered.yaml || true
           cat infra/iiot-fft-service.rendered.yaml
 
-      # Deploy using a previously pushed image (no build here)
+      # Deploy using the previously pushed image
       - name: Deploy to Azure Container Apps
         uses: azure/container-apps-deploy-action@v2
         with:
@@ -64,8 +63,7 @@ jobs:
           containerAppName: iiot-fft-service
           imageToDeploy: ${{ env.IMAGE_SHA }}
           yamlConfigPath: infra/iiot-fft-service.rendered.yaml
-          waitForRollout: false  
-
+          waitForRollout: false
           # secrets: |
           #   EXAMPLE_SECRET=${{ secrets.EXAMPLE_SECRET }}
 
@@ -76,4 +74,3 @@ jobs:
             --query "[?properties.active==\`false\`].name" -o tsv | \
           xargs -r -I {} az containerapp revision delete \
             -g iiot-poc-rg -n iiot-fft-service --revision {} --yes
-
