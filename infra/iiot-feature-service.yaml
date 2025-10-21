@@ -8,15 +8,14 @@ properties:
   configuration:
     activeRevisionsMode: Single
     ingress:
-      external: false            # Ingen extern åtkomst (worker-app)
+      external: false
       targetPort: 0
       allowInsecure: false
 
   template:
-    revisionSuffix: "v1-0"
     containers:
       - name: feature-service
-        image: iiotpocacr.azurecr.io/feature-service:latest
+        image: iiotpocacr.azurecr.io/feature-service:latest   # kommer override:as av workflow
         env:
           - name: INFLUX_URL
             value: http://influxdb:8086
