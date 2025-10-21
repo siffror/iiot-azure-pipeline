@@ -51,11 +51,11 @@ jobs:
           docker push "$IMAGE_LATEST"
 
       # 🧩 NEW STEP: Ensure secret exists before deploy
-      - name: Set ACA secrets (influxdb-token)
+      - name: Set ACA secrets (influxdb-admin-token)
         run: |
           az containerapp secret set \
             -g $RG -n $APP \
-            --secrets influxdb-token='${{ secrets.INFLUXDB_TOKEN }}'
+            --secrets influxdb-admin-token='${{ secrets.INFLUXDB_TOKEN }}'
 
       # Render infra YAML (only if placeholders exist)
       - name: Render infra YAML with image
@@ -82,3 +82,4 @@ jobs:
             --query "[?properties.active==\`false\`].name" -o tsv | \
           xargs -r -I {} az containerapp revision delete \
             -g $RG -n $APP --revision {} --yes
+
