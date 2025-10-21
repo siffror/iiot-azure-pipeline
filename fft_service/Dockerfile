@@ -1,9 +1,18 @@
-# Dockerfile (fft-service)
 FROM python:3.11-slim
-ENV PYTHONUNBUFFERED=1
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
 WORKDIR /app
-COPY requirements.txt .
+COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
-COPY fft_service.py .
-# ingen exponering behövs för ACA, lyssnar på 5000 för health
+
+COPY . .
+# (Optional) non-root
+RUN useradd -m appuser && chown -R appuser:appuser /app
+USER appuser
+
+# Health runs on 5000 (ACA probes hit this); no EXPOSE required, but harmless:
+EXPOSE 5000
+
 CMD ["python", "fft_service.py"]
