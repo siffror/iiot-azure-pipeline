@@ -15,6 +15,12 @@ jobs:
       id-token: write
       contents: read
 
+    env:
+      RG: iiot-poc-rg
+      APP: influxdb
+      ENV_NAME: iiot-env-public
+      MANIFEST: infra/influxdb.yaml
+
     steps:
       - uses: actions/checkout@v4
 
@@ -25,22 +31,79 @@ jobs:
           tenant-id: ${{ secrets.IIOTFFTSERVICE_AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.IIOTFFTSERVICE_AZURE_SUBSCRIPTION_ID }}
 
+      - name: Ensure containerapp extension
+        run: az extension add --name containerapp --upgrade
+
       - name: Sanity check
         run: |
           az account show -o table
-          az containerapp list -g iiot-poc-rg -o table
+          az containerapp env show -g "$RG" -n "$ENV_NAME" --query location -o tsv
 
+      # ---- IMPORTANT: ensure all secrets exist before YAML deploy ----
+      - name: Set ACA secrets for influxdb (only if provided)
+        shell: bash
+        run: |
+          set -euo pipefail
+          declare -a args=()
+
+          # Admin user
+          if [ -n "${{ secrets.INFLUXDB_ADMIN_USER }}" ]; then
+            args+=("influxdb-admin-user=${{ secrets.INFLUXDB_ADMIN_USER }}")
+          fi
+
+          # Admin password (create BOTH names to cover YAML mismatch)
+          if [ -n "${{ secrets.INFLUXDB_ADMIN_PASSWORD }}" ]; then
+            args+=("influxdb-admin-password=${{ secrets.INFLUXDB_ADMIN_PASSWORD }}")
+            args+=("influxdb-admin-pass=${{ secrets.INFLUXDB_ADMIN_PASSWORD }}")
+          fi
+
+          # Admin token
+          if [ -n "${{ secrets.INFLUXDB_ADMIN_TOKEN }}" ]; then
+            args+=("influxdb-admin-token=${{ secrets.INFLUXDB_ADMIN_TOKEN }}")
+          fi
+
+          # Optional: storage key (only if your YAML uses a secretRef named 'azure-storage-key')
+          if [ -n "${{ secrets.INFLUXDB_AZURE_STORAGE_KEY }}" ]; then
+            args+=("azure-storage-key=${{ secrets.INFLUXDB_AZURE_STORAGE_KEY }}")
+          fi
+
+          if [ ${#args[@]} -gt 0 ]; then
+            echo "Setting secrets: ${args[*]//=*}"
+            az containerapp secret set -g "$RG" -n "$APP" --secrets "${args[@]}"
+          else
+            echo "No secrets provided in GitHub → keeping existing ACA secrets."
+          fi
+
+          echo "Current app secrets (names only):"
+          az containerapp secret list -g "$RG" -n "$APP" -o table
+
+      - name: Print manifest (first 250 lines)
+        run: sed -n '1,250p' "$MANIFEST"
+
+      - name: Validate secretRef usage for password/token
+        run: |
+          python3 - <<'PY'
+          import yaml,sys
+          d=yaml.safe_load(open("infra/influxdb.yaml"))
+          env = d["properties"]["template"]["containers"][0].get("env",[])
+          need = {"INFLUXDB_ADMIN_PASSWORD", "INFLUXDB_TOKEN"}
+          found = {e["name"]: ("secretRef" in e) for e in env if "name" in e}
+          print("env names -> has secretRef:", {k:found.get(k) for k in need})
+          bad = [e for e in env if e.get("name") in need and not e.get("secretRef")]
+          print("BAD entries (missing secretRef):", bad)
+          PY
+
+      # ---- Deploy/update from YAML (now that secretRefs exist) ----
       - name: Deploy InfluxDB (ACA via YAML)
         uses: azure/container-apps-deploy-action@v2
         with:
-          resourceGroup: iiot-poc-rg
-          containerAppName: influxdb
-          containerAppEnvironment: iiot-env-public
-          yamlConfigPath: infra/influxdb.yaml   # YAML äger imagen & volymer
+          resourceGroup: ${{ env.RG }}
+          containerAppName: ${{ env.APP }}
+          containerAppEnvironment: ${{ env.ENV_NAME }}
+          yamlConfigPath: ${{ env.MANIFEST }}
 
       - name: Cleanup old inactive revisions
         run: |
-          az containerapp revision list -g iiot-poc-rg -n influxdb \
+          az containerapp revision list -g "$RG" -n "$APP" \
             --query "[?properties.active==\`false\`].name" -o tsv | \
-          xargs -r -I {} az containerapp revision delete \
-            -g iiot-poc-rg -n influxdb --revision {} --yes
+          xargs -r -I {} az containerapp revision delete -g "$RG" -n "$APP" --revision {} --yes
