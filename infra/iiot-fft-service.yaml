@@ -1,19 +1,81 @@
+# Container App: iiot-fft-service
+# Schema följer ARM/YAML för Microsoft.App/containerApps (stöd för env, probes, volumes).
+# Den här filen kan användas med:  az containerapp create|update --yaml infra/iiot-fft-service.yaml
 type: Microsoft.App/containerApps
+apiVersion: 2025-02-02-preview
 name: iiot-fft-service
+location: North Europe
+identity:
+  type: SystemAssigned
 properties:
-  environmentId: /subscriptions/5e58abe7-2302-449a-a7a2-35f2b3c4b886/resourceGroups/iiot-poc-rg/providers/Microsoft.App/managedEnvironments/iiot-env-public
+  managedEnvironmentId: /subscriptions/5e58abe7-2302-449a-a7a2-35f2b3c4b886/resourceGroups/iiot-poc-rg/providers/Microsoft.App/managedEnvironments/iiot-env-public
   configuration:
-    ingress: null
+    activeRevisionsMode: Single
+    registries:
+      - server: iiotpocacr.azurecr.io
+        identity: system-environment
   template:
     containers:
       - name: iiot-fft-service
-        image: iiotpocacr.azurecr.io/iiot-fft-service:__TAG__
+        image: iiotpocacr.azurecr.io/iiot-fft-service:latest
+        resources:
+          cpu: 0.5
+          memory: 1Gi
+        env:
+          # --- MQTT (intern broker i samma ACA, TCP 1883) ---
+          - name: MQTT_HOST
+            value: mosquitto.internal.happyisland-fa52694f.northeurope.azurecontainerapps.io
+          - name: MQTT_PORT
+            value: "1883"
+          - name: MQTT_TOPIC_IN
+            value: iiot/vibration_raw
+          - name: MQTT_TOPIC_OUT
+            value: iiot/vibration_fft
+          - name: SAMPLE_RATE
+            value: "25600"
+
+          # --- InfluxDB (skrivning av features) ---
+          - name: INFLUXDB_URL
+            value: http://influxdb:8086   # byt gärna till intern FQDN när vi har den
+          - name: INFLUXDB_ORG
+            value: iiot-org
+          - name: INFLUXDB_BUCKET
+            value: iiot
+          - name: INFLUXDB_TOKEN
+            valueFromSecret: influxdb-token
+
+          # --- Modell ---
+          - name: MODEL_PATH
+            value: /models/iforest_final.joblib
+
+        # Health checks – vår kod svarar HTTP 200 på /health (port 5000)
         probes:
           - type: Liveness
-            httpGet: { path: /health, port: 5000 }
+            httpGet:
+              path: /health
+              port: 5000
             initialDelaySeconds: 3
             periodSeconds: 10
           - type: Readiness
-            httpGet: { path: /health, port: 5000 }
+            httpGet:
+              path: /health
+              port: 5000
             initialDelaySeconds: 3
             periodSeconds: 5
+
+        volumeMounts:
+          - volumeName: fft-storage
+            mountPath: /models
+            # readOnly: true   # kan aktiveras när vi vill låsa montering
+
+    # Volymdefinition – refererar till Environment Storage "fft-storage"
+    volumes:
+      - name: fft-storage
+        storageType: AzureFile
+        storageName: fft-storage
+
+    scale:
+      minReplicas: 1
+      maxReplicas: 1
+      cooldownPeriod: 300
+      pollingInterval: 30
