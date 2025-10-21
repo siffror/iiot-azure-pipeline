@@ -22,7 +22,7 @@ properties:
           cpu: 0.5
           memory: 1Gi
         env:
-          # --- MQTT (intern broker i samma ACA, TCP 1883) ---
+        env:
           - name: MQTT_HOST
             value: mosquitto.internal.happyisland-fa52694f.northeurope.azurecontainerapps.io
           - name: MQTT_PORT
@@ -34,15 +34,14 @@ properties:
           - name: SAMPLE_RATE
             value: "25600"
 
-          # --- InfluxDB (skrivning av features) ---
           - name: INFLUXDB_URL
-            value: http://influxdb:8086   # byt gärna till intern FQDN när vi har den
+            value: http://influxdb:8086
           - name: INFLUXDB_ORG
             value: iiot-org
           - name: INFLUXDB_BUCKET
             value: iiot
           - name: INFLUXDB_TOKEN
-            valueFromSecret: influxdb-token
+            valueFromSecret: influxdb-admin-token
 
           # --- Modell ---
           - name: MODEL_PATH
