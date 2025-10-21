@@ -24,9 +24,16 @@ jobs:
     env:
       RG: iiot-poc-rg
       APP: iiot-fft-service
+      ENV_NAME: iiot-env-public
       REPO: iiotpocacr.azurecr.io/iiot-fft-service
       IMAGE_SHA: iiotpocacr.azurecr.io/iiot-fft-service:${{ github.sha }}
       IMAGE_LATEST: iiotpocacr.azurecr.io/iiot-fft-service:latest
+
+      # --- Environment Storage (CONFIRM/TWEAK IF NEEDED) ---
+      ENV_STORAGE_NAME: fft-storage          # the "Environment Storage" object name in ACA env
+      STORAGE_ACCOUNT: iiotpocstorage        # Azure Storage account name
+      FILE_SHARE: models                     # File share name that contains your model
+      STORAGE_ACCESS_MODE: ReadOnly          # ReadOnly or ReadWrite
 
     steps:
       - uses: actions/checkout@v4
@@ -37,6 +44,9 @@ jobs:
           client-id: ${{ secrets.IIOTFFTSERVICE_AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.IIOTFFTSERVICE_AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.IIOTFFTSERVICE_AZURE_SUBSCRIPTION_ID }}
+
+      - name: Ensure containerapp extension
+        run: az extension add --name containerapp --upgrade
 
       # Login to ACR (manual push)
       - name: ACR login
@@ -50,20 +60,61 @@ jobs:
           docker push "$IMAGE_SHA"
           docker push "$IMAGE_LATEST"
 
-      # 🧩 NEW STEP: Ensure secret exists before deploy
-      - name: Set ACA secrets (influxdb-admin-token)
+      # Ensure ACA secret exists (avoid empty overwrite)
+      - name: Set ACA secret (influxdb-admin-token) if provided
         run: |
-          az containerapp secret set \
-            -g $RG -n $APP \
-            --secrets influxdb-admin-token='${{ secrets.INFLUXDB_TOKEN }}'
+          if [ -n "${{ secrets.INFLUXDB_TOKEN }}" ]; then
+            echo "Setting influxdb-admin-token from GitHub secret..."
+            az containerapp secret set -g "$RG" -n "$APP" \
+              --secrets influxdb-admin-token='${{ secrets.INFLUXDB_TOKEN }}'
+          else
+            echo "No INFLUXDB_TOKEN provided; keeping existing ACA secret."
+          fi
+
+      # Ensure Environment Storage exists (fixes ManagedEnvironmentStorageNotFound)
+      - name: Ensure Environment Storage exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Checking Environment Storage '$ENV_STORAGE_NAME' in env '$ENV_NAME'..."
+          if az containerapp env storage list -g "$RG" -n "$ENV_NAME" --query "[?name=='$ENV_STORAGE_NAME'] | length(@)" -o tsv | grep -q "^1$"; then
+            echo "Environment Storage '$ENV_STORAGE_NAME' already exists."
+          else
+            echo "Creating Environment Storage '$ENV_STORAGE_NAME' (account=$STORAGE_ACCOUNT, share=$FILE_SHARE, mode=$STORAGE_ACCESS_MODE)..."
+            KEY=$(az storage account keys list -g "$RG" -n "$STORAGE_ACCOUNT" --query "[0].value" -o tsv)
+            az containerapp env storage set \
+              -g "$RG" -n "$ENV_NAME" \
+              --storage-name "$ENV_STORAGE_NAME" \
+              --azure-file-account-name "$STORAGE_ACCOUNT" \
+              --azure-file-account-key "$KEY" \
+              --azure-file-share-name "$FILE_SHARE" \
+              --access-mode "$STORAGE_ACCESS_MODE"
+            echo "Environment Storage '$ENV_STORAGE_NAME' created."
+          fi
 
       # Render infra YAML (only if placeholders exist)
       - name: Render infra YAML with image
         run: |
           cp infra/iiot-fft-service.yaml infra/iiot-fft-service.rendered.yaml
-          sed -i "s|__IMAGE__|$IMAGE_SHA|g" infra/iiot-fft-service.rendered.yaml || true
-          sed -i "s|__TAG__|${{ github.sha }}|g" infra/iiot-fft-service.rendered.yaml || true
-          cat infra/iiot-fft-service.rendered.yaml
+          # If you template image in YAML with __IMAGE__/__TAG__, uncomment:
+          # sed -i "s|__IMAGE__|$IMAGE_SHA|g" infra/iiot-fft-service.rendered.yaml || true
+          # sed -i "s|__TAG__|${{ github.sha }}|g" infra/iiot-fft-service.rendered.yaml || true
+
+      # Debug: print and validate INFLUXDB_TOKEN entry
+      - name: Debug rendered manifest
+        run: |
+          echo "----- RENDERED (first 250 lines) -----"
+          sed -n '1,250p' infra/iiot-fft-service.rendered.yaml
+          echo "----- grep INFLUXDB_TOKEN -----"
+          grep -n "INFLUXDB_TOKEN" infra/iiot-fft-service.rendered.yaml || true
+          python3 - <<'PY'
+          import yaml
+          d=yaml.safe_load(open("infra/iiot-fft-service.rendered.yaml"))
+          env=d["properties"]["template"]["containers"][0]["env"]
+          bad=[e for e in env if e.get("name")=="INFLUXDB_TOKEN" and not (e.get("value") or e.get("secretRef"))]
+          print("INFLUXDB_TOKEN entries:", [e for e in env if e.get("name")=="INFLUXDB_TOKEN"])
+          print("BAD (missing both):", bad)
+          PY
 
       # Deploy using the previously pushed image
       - name: Deploy to Azure Container Apps
@@ -73,13 +124,11 @@ jobs:
           containerAppName: ${{ env.APP }}
           imageToDeploy: ${{ env.IMAGE_SHA }}
           yamlConfigPath: infra/iiot-fft-service.rendered.yaml
-          # secrets section optional now (secret already created)
 
       - name: Clean up old inactive revisions
         run: |
           az containerapp revision list \
-            -g $RG -n $APP \
+            -g "$RG" -n "$APP" \
             --query "[?properties.active==\`false\`].name" -o tsv | \
           xargs -r -I {} az containerapp revision delete \
-            -g $RG -n $APP --revision {} --yes
-
+            -g "$RG" -n "$APP" --revision {} --yes
