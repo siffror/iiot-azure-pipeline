@@ -64,6 +64,8 @@ jobs:
           containerAppName: iiot-fft-service
           imageToDeploy: ${{ env.IMAGE_SHA }}
           yamlConfigPath: infra/iiot-fft-service.rendered.yaml
+          waitForRollout: false  
+
           # secrets: |
           #   EXAMPLE_SECRET=${{ secrets.EXAMPLE_SECRET }}
 
@@ -74,3 +76,4 @@ jobs:
             --query "[?properties.active==\`false\`].name" -o tsv | \
           xargs -r -I {} az containerapp revision delete \
             -g iiot-poc-rg -n iiot-fft-service --revision {} --yes
+
