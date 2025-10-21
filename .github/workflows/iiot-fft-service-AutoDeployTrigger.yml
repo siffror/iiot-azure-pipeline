@@ -1,4 +1,4 @@
-name: Trigger auto deployment for iiot-fft-service
+name: Auto deploy iiot-fft-service
 on:
   push:
     branches: [ main ]
@@ -8,34 +8,65 @@ on:
       - '.github/workflows/iiot-fft-service-AutoDeployTrigger.yml'
   workflow_dispatch:
 
+concurrency:
+  group: iiot-fft-service
+  cancel-in-progress: true
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     permissions:
       id-token: write
       contents: read
+
+    env:
+      REPO: iiotpocacr.azurecr.io/iiot-fft-service
+      IMAGE_SHA: iiotpocacr.azurecr.io/iiot-fft-service:${{ github.sha }}
+      IMAGE_LATEST: iiotpocacr.azurecr.io/iiot-fft-service:latest
+
     steps:
       - uses: actions/checkout@v4
+
+      # Login to Azure (OIDC)
       - uses: azure/login@v2
         with:
           client-id: ${{ secrets.IIOTFFTSERVICE_AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.IIOTFFTSERVICE_AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.IIOTFFTSERVICE_AZURE_SUBSCRIPTION_ID }}
-      - name: Render infra YAML with image tag
+
+      # Login to ACR (action@v2 loggar normalt in åt dig, men vi vill pusha manuellt)
+      - name: ACR login
+        run: |
+          az acr login --name iiotpocacr
+
+      # Build & push both SHA and latest
+      - name: Build (SHA + latest) and push
+        working-directory: fft_service
+        run: |
+          docker build -f Dockerfile -t "$IMAGE_SHA" -t "$IMAGE_LATEST" .
+          docker push "$IMAGE_SHA"
+          docker push "$IMAGE_LATEST"
+
+      # (Valfritt) Render infra YAML om den innehåller en __TAG__ placeholder
+      # Om din infra YAML inte innehåller bildreferens kan du hoppa över detta steg
+      - name: Render infra YAML with image
         run: |
           cp infra/iiot-fft-service.yaml infra/iiot-fft-service.rendered.yaml
-          sed -i "s|__TAG__|${{ github.sha }}|g" infra/iiot-fft-service.rendered.yaml
+          sed -i "s|__IMAGE__|$IMAGE_SHA|g" infra/iiot-fft-service.rendered.yaml || true
+          sed -i "s|__TAG__|${{ github.sha }}|g" infra/iiot-fft-service.rendered.yaml || true
           cat infra/iiot-fft-service.rendered.yaml
-      - name: Build and deploy to Azure Container Apps
+
+      # Deploy using a previously pushed image (no build here)
+      - name: Deploy to Azure Container Apps
         uses: azure/container-apps-deploy-action@v2
         with:
-          appSourcePath: ${{ github.workspace }}/fft_service
-          dockerfilePath: Dockerfile
-          acrName: iiotpocacr
-          containerAppName: iiot-fft-service
           resourceGroup: iiot-poc-rg
-          imageToBuild: iiotpocacr.azurecr.io/iiot-fft-service:${{ github.sha }}
+          containerAppName: iiot-fft-service
+          imageToDeploy: ${{ env.IMAGE_SHA }}
           yamlConfigPath: infra/iiot-fft-service.rendered.yaml
+          # secrets: |
+          #   EXAMPLE_SECRET=${{ secrets.EXAMPLE_SECRET }}
+
       - name: Clean up old inactive revisions
         run: |
           az containerapp revision list \
