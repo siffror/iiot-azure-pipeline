@@ -63,7 +63,6 @@ jobs:
           containerAppName: iiot-fft-service
           imageToDeploy: ${{ env.IMAGE_SHA }}
           yamlConfigPath: infra/iiot-fft-service.rendered.yaml
-          waitForRollout: false
           # secrets: |
           #   EXAMPLE_SECRET=${{ secrets.EXAMPLE_SECRET }}
 
