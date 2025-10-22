@@ -1,37 +1,39 @@
-type: Microsoft.App/containerApps
-apiVersion: 2024-03-01
-name: mosquitto
-name: iiot-fft-service
-location: North Europe
-properties:
-  managedEnvironmentId: /subscriptions/5e58abe7-2302-449a-a7a2-35f2b3c4b886/resourceGroups/iiot-poc-rg/providers/Microsoft.App/managedEnvironments/iiot-env-public
-  configuration:
-    ingress:
-      external: true
-      targetPort: 1883
-      transport: tcp
-      exposedPort: 1883
-  template:
-    containers:
-      - name: mosquitto
-        image: docker.io/eclipse-mosquitto:2.0.22
-        command: ["mosquitto"]
-        args: ["-c", "/mosquitto/config/mosquitto.conf"]
-        env:
-          - name: MQTT_PORT
-            value: "1883"
-        resources:
-          cpu: 0.5
-          memory: 1Gi
-        volumeMounts:
-          - volumeName: mosqconf
-            mountPath: /mosquitto/config
-          - volumeName: mosquitto-data
-            mountPath: /mosquitto/data
-    volumes:
-      - name: mosquitto-conf
-        secretRef:
-          secretName: mosquitto-conf
-      - name: mosquitto-data
-        storageType: AzureFile
-        storageName: mosquitto-data-storage
+ type: Microsoft.App/containerApps
+ apiVersion: 2024-03-01
+-name: mosquitto
+-name: iiot-fft-service
++name: mosquitto
+ location: North Europe
+ properties:
+   managedEnvironmentId: /subscriptions/5e58abe7-2302-449a-a7a2-35f2b3c4b886/resourceGroups/iiot-poc-rg/providers/Microsoft.App/managedEnvironments/iiot-env-public
+   configuration:
+     ingress:
+       external: true
+       targetPort: 1883
+       transport: tcp
+       exposedPort: 1883
+   template:
+     containers:
+       - name: mosquitto
+         image: docker.io/eclipse-mosquitto:2.0.22
+         command: ["mosquitto"]
+         args: ["-c", "/mosquitto/config/mosquitto.conf"]
+         env:
+           - name: MQTT_PORT
+             value: "1883"
+         resources:
+           cpu: 0.5
+           memory: 1Gi
+         volumeMounts:
+-          - volumeName: mosqconf
++          - volumeName: mosquitto-conf
+             mountPath: /mosquitto/config
+           - volumeName: mosquitto-data
+             mountPath: /mosquitto/data
+     volumes:
+       - name: mosquitto-conf
+         secretRef:
+           secretName: mosquitto-conf
+       - name: mosquitto-data
+         storageType: AzureFile
+         storageName: mosquitto-data-storage
