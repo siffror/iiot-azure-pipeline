@@ -23,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Guard: block legacy auth
+      - name: Guard block legacy auth
         shell: bash
         run: |
           (grep -RniE 'auth-type|creds:|AZURE_CREDENTIALS' .github/workflows && echo "Found legacy auth. Fix before proceeding." && exit 1) || echo "OK"
