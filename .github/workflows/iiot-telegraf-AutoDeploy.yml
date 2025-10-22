@@ -36,7 +36,7 @@ jobs:
       - name: Install ACA extension
         run: az extension add --name containerapp --upgrade
 
-      # Create app once (internal/no ingress needed for agent) so MI exists
+      # Skapa appen första gången (så system-MI finns). Ingress kan vara intern/dummy.
       - name: Ensure app exists (first run)
         shell: bash
         run: |
@@ -46,21 +46,19 @@ jobs:
             --image mcr.microsoft.com/azuredocs/containerapps-helloworld:latest \
             --ingress internal --target-port 8080
 
-      # Wait until system-assigned identity is issued
-      - name: Wait for system identity to be ready
+      # Vänta på system-assigned identity
+      - name: Wait for system identity
         shell: bash
         run: |
           set -euo pipefail
           for i in {1..30}; do
             PID=$(az containerapp show -g "$RG" -n "$APP" --query "identity.principalId" -o tsv || true)
-            if [ -n "${PID:-}" ] && [ "$PID" != "None" ]; then
-              echo "System MI principalId: $PID"; break
-            fi
-            echo "Waiting for system MI..."; sleep 5
-            if [ $i -eq 30 ]; then echo "Timeout waiting for MI"; exit 1; fi
+            [ -n "${PID:-}" ] && [ "$PID" != "None" ] && { echo "System MI: $PID"; exit 0; }
+            echo "Waiting for system MI... ($i/30)"; sleep 5
           done
+          echo "Timeout waiting for system MI"; exit 1
 
-      # Ensure ACR AcrPull for both env MI and app MI (defensivt)
+      # ACR pull tillåtelser
       - name: Grant AcrPull to environment & app identities
         shell: bash
         run: |
@@ -68,54 +66,35 @@ jobs:
           ACR_ID=$(az acr show -n "$ACR_NAME" --query id -o tsv)
           ENV_MI=$(az containerapp env show -g "$RG" -n "$ENV_NAME" --query "identity.principalId" -o tsv || true)
           APP_MI=$(az containerapp show -g "$RG" -n "$APP" --query "identity.principalId" -o tsv || true)
-
-          if [ -n "$ENV_MI" ] && [ "$ENV_MI" != "None" ]; then
-            az role assignment create --assignee "$ENV_MI" --role "AcrPull" --scope "$ACR_ID" >/dev/null 2>&1 || true
-          fi
-          if [ -n "$APP_MI" ] && [ "$APP_MI" != "None" ]; then
-            az role assignment create --assignee "$APP_MI" --role "AcrPull" --scope "$ACR_ID" >/dev/null 2>&1 || true
-          fi
-
-          # Configure app to use ACR with system identity
+          [ -n "$ENV_MI" ] && [ "$ENV_MI" != "None" ] && az role assignment create --assignee "$ENV_MI" --role "AcrPull" --scope "$ACR_ID" >/dev/null 2>&1 || true
+          [ -n "$APP_MI" ] && [ "$APP_MI" != "None" ] && az role assignment create --assignee "$APP_MI" --role "AcrPull" --scope "$ACR_ID" >/dev/null 2>&1 || true
           az containerapp identity assign -g "$RG" -n "$APP" --system-assigned >/dev/null
           az containerapp registry set    -g "$RG" -n "$APP" --server "${ACR_NAME}.azurecr.io" --identity system
 
-      # Use Key Vault secret reference (preferred) OR GitHub secret fallback
-      - name: Ensure KV secret reference (influxdb-admin-token) exists
+      # Key Vault-referens eller GitHub fallback för INFLUX_TOKEN
+      - name: Ensure KV secret reference (influxdb-admin-token)
         if: ${{ vars.SECRET_SOURCE == 'kv' }}
-        shell: bash
         env:
           KV_INFLUX_TOKEN_URL: https://iiotpockv.vault.azure.net/secrets/influxdb-admin-token
         run: |
           set -euo pipefail
-          for i in {1..12}; do
-            if az containerapp secret set \
-              -g "$RG" -n "$APP" \
-              --secrets influxdb-admin-token=keyvaultref:${KV_INFLUX_TOKEN_URL},identityref:system; then
-              echo "KV secret reference added."
-              exit 0
-            fi
-            echo "Retry $i/12 adding KV secret reference..."; sleep 10
-          done
-          echo "Failed to add KV secret reference"; exit 1
+          az containerapp secret set -g "$RG" -n "$APP" \
+            --secrets influxdb-admin-token=keyvaultref:${KV_INFLUX_TOKEN_URL},identityref:system
 
-      - name: Validate required secret (GitHub fallback)
+      - name: Set app secrets from GitHub (fallback)
         if: ${{ vars.SECRET_SOURCE != 'kv' }}
-        shell: bash
-        run: |
-          TOK='${{ secrets.INFLUXDB_ADMIN_TOKEN }}'
-          if [ -z "$TOK" ]; then
-            echo "Missing secret: INFLUXDB_ADMIN_TOKEN"; exit 1
-          fi
-          echo "INFLUXDB_ADMIN_TOKEN length: ${#TOK}"
-
-      - name: Set app secrets (GitHub fallback)
-        if: ${{ vars.SECRET_SOURCE != 'kv' }}
-        shell: bash
         run: |
           CLEAN_TOKEN="$(printf '%s' '${{ secrets.INFLUXDB_ADMIN_TOKEN }}' | tr -d '\r\n')"
+          [ -z "$CLEAN_TOKEN" ] && { echo "Missing INFLUXDB_ADMIN_TOKEN"; exit 1; }
           az containerapp secret set -g "$RG" -n "$APP" \
             --secrets influxdb-admin-token="$CLEAN_TOKEN"
+
+      # Viktigt: lägg in telegraf.conf som secret (läser från /telegraf/telegraf.conf i repo)
+      - name: Ensure telegraf-conf secret
+        run: |
+          test -f telegraf/telegraf.conf || { echo "Missing telegraf/telegraf.conf"; exit 1; }
+          az containerapp secret set -g "$RG" -n "$APP" \
+            --secrets "telegraf-conf=$(<telegraf/telegraf.conf)"
 
       - name: Render YAML (image tag + registry)
         run: |
@@ -125,7 +104,6 @@ jobs:
           echo "Rendered image line(s):"
           grep -n 'image:' infra/telegraf.rendered.yaml || true
 
-      # Build & deploy via action (korrekta paths)
       - name: Build & Deploy Telegraf (ACA)
         uses: azure/container-apps-deploy-action@v2
         with:
@@ -138,14 +116,13 @@ jobs:
           imageToBuild: ${{ env.ACR_NAME }}.azurecr.io/iiot-telegraf:${{ github.sha }}
           yamlConfigPath: infra/telegraf.rendered.yaml
 
-      - name: Map INFLUX_TOKEN to secretref after deploy
-        shell: bash
-        run: |
-          az containerapp update -g "$RG" -n "$APP" \
-            --set-env-vars INFLUX_TOKEN=secretref:influxdb-admin-token
+      # ❌ Ta bort detta steg – du hade tidigare skrivit en text "secretref:..." som env-värde
+      # - name: Map INFLUX_TOKEN to secretref after deploy
+      #   run: |
+      #     az containerapp update -g "$RG" -n "$APP" \
+      #       --set-env-vars INFLUX_TOKEN=secretref:influxdb-admin-token
 
       - name: Cleanup old inactive revisions
-        shell: bash
         run: |
           az containerapp revision list -g "$RG" -n "$APP" \
             --query "[?properties.active==\`false\`].name" -o tsv | \
