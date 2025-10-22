@@ -24,7 +24,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Guard block legacy SP auth
+      - name: Guard - no legacy SP auth
         shell: bash
         run: |
           set -euo pipefail
@@ -38,7 +38,7 @@ jobs:
       - name: Azure login (OIDC)
         uses: azure/login@v2
         with:
-          # För OIDC: låt auth-type/creds vara utelämnat — action auto-detekterar OIDC via id-token permission.
+          # För OIDC: lämna auth-type/creds utelämnat — action auto-detekterar OIDC.
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -67,13 +67,13 @@ jobs:
         run: |
           set -euo pipefail
           test -f "$CONF_PATH" || { echo "Missing $CONF_PATH" >&2; exit 1; }
-          mosq_conf=$(printf '%s\n' "$(cat "$CONF_PATH")")
+          # Läs filen och sätt som secret (mosqconf)
           az containerapp secret set \
             --name "$APP_NAME" \
             --resource-group "$RG" \
-            --secrets mosquitto.conf="$mosq_conf"
+            --secrets "mosqconf=$(cat "$CONF_PATH")"
 
-      - name: Render YAML (replace __IMAGE__ placeholder if present)
+      - name: Render manifest (replace __IMAGE__ if present)
         shell: bash
         run: |
           set -euo pipefail
@@ -85,17 +85,18 @@ jobs:
           fi
           echo "Using manifest: .render/mosquitto.containerapp.yaml"
 
-      - name: Deploy Container App from YAML
+      - name: Deploy Container App from YAML (create or update)
         shell: bash
         run: |
           set -euo pipefail
           if az containerapp show -g "$RG" -n "$APP_NAME" >/dev/null 2>&1; then
-            echo "Container App exists — attempting update from YAML"
+            echo "Container App exists — updating from YAML"
             az containerapp update -g "$RG" -n "$APP_NAME" --yaml .render/mosquitto.containerapp.yaml || {
-              echo "Update via --yaml failed; try inspecting YAML or recreate." >&2
+              echo "Update failed; inspect YAML or recreate manually." >&2
+              exit 1
             }
           else
-            echo "Container App not found — creating from YAML"
+            echo "Creating Container App from YAML"
             az containerapp create -g "$RG" -n "$APP_NAME" --yaml .render/mosquitto.containerapp.yaml --environment "$ACA_ENV"
           fi
 
