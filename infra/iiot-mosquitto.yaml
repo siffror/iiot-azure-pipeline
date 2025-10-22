@@ -1,62 +1,36 @@
 type: Microsoft.App/containerApps
-apiVersion: 2023-08-01
+apiVersion: 2024-03-01
 name: mosquitto
-location: northeurope
+location: North Europe
 properties:
-  managedEnvironmentId: /subscriptions/5e58abe7-2302-449a-a7a2-35f2b3c4b886/resourceGroups/iiot-poc-rg/providers/Microsoft.App/managedEnvironments/iiot-env-public
+  managedEnvironmentId: /subscriptions/<SUBSCRIPTION_ID>/resourceGroups/iiot-poc-rg/providers/Microsoft.App/managedEnvironments/iiot-env-public
   configuration:
-    activeRevisionsMode: Single
     ingress:
-      external: false            # sätt true om du vill nås externt (kräver VNET/konfiguration för TCP)
+      external: true
       targetPort: 1883
       transport: tcp
-      traffic:
-        - latestRevision: true
-          weight: 100
-    # Secret deklareras här men lämnas tom i Git (sätts via CLI/workflow)
-    secrets:
-      - name: mosqconf
-        value: ""
+      exposedPort: 1883
   template:
     containers:
       - name: mosquitto
-        image: __IMAGE__         # placeholder — byts av workflow
+        image: docker.io/eclipse-mosquitto:2.0.22
+        command: ["mosquitto"]
+        args: ["-c", "/mosquitto/config/mosquitto.conf"]
         env:
-          - name: TZ
-            value: UTC
-        command:
-          - /usr/sbin/mosquitto
-        args:
-          - -c
-          - /appconfig/mosquitto.conf
-          - -v
+          - name: MQTT_PORT
+            value: "1883"
         resources:
           cpu: 0.5
-          memory: 1.0Gi
+          memory: 1Gi
         volumeMounts:
+          - volumeName: mosquitto-conf
+            mountPath: /mosquitto/config
           - volumeName: mosquitto-data
             mountPath: /mosquitto/data
-          - volumeName: mosqconfvol
-            mountPath: /appconfig
-        probes:
-          - type: Liveness
-            tcpSocket:
-              port: 1883
-            initialDelaySeconds: 10
-            periodSeconds: 10
-            failureThreshold: 3
-          - type: Readiness
-            tcpSocket:
-              port: 1883
-            initialDelaySeconds: 5
-            periodSeconds: 10
-    scale:
-      minReplicas: 1
-      maxReplicas: 1
     volumes:
+      - name: mosquitto-conf
+        secretRef:
+          secretName: mosquitto-conf
       - name: mosquitto-data
         storageType: AzureFile
-        storageName: mosquitto-data-storage   # måste finnas som storage binding i Managed Environment
-      - name: mosqconfvol
-        secret:
-          secretRef: mosqconf
+        storageName: mosquitto-data-storage
