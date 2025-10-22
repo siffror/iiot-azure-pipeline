@@ -1,108 +1,41 @@
-name: iiot-mosquitto-AutoDeploy
+name: Deploy Mosquitto
 
 on:
-  workflow_dispatch:
   push:
-    branches: [ main ]   # måste matcha din federated credential subject exakt
+    branches:
+      - main
 
 permissions:
-  id-token: write        # krävs för OIDC
+  id-token: write
   contents: read
-
-env:
-  RG: "iiot-poc-rg"
-  ACA_ENV: "iiot-env-public"
-  APP_NAME: "mosquitto"
-  IMAGE: "eclipse-mosquitto:2.0.18"
-  YAML_PATH: "infra/iiot-mosquitto.yaml"
-  CONF_PATH: "mosquitto/mosquitto.conf"
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v3
 
-      - name: Guard - no legacy SP auth
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "Scanning .github/workflows for legacy auth (auth-type/creds/AZURE_CREDENTIALS)..."
-          if grep -RniE '(^|[:space])auth-type|(^|[:space])creds:|AZURE_CREDENTIALS' .github/workflows >/dev/null 2>&1; then
-            echo "Found legacy auth config. Remove it before proceeding to ensure OIDC is used." >&2
-            exit 1
-          fi
-          echo "OK: No legacy auth found"
+    - name: Login to Azure
+      uses: azure/login@v1
+      with:
+        # Använd OIDC för att autentisera mot Azure
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Azure login (OIDC)
-        uses: azure/login@v2
-        with:
-          # För OIDC: lämna auth-type/creds utelämnat — action auto-detekterar OIDC.
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          enable-AzPSSession: false
-          environment: azurecloud
-          allow-no-subscriptions: false
-
-      - name: Verify Azure context
-        shell: bash
-        run: |
-          set -euo pipefail
-          az account show -o table
-
-      - name: Ensure containerapp extension
-        shell: bash
-        run: |
-          set -euo pipefail
-          if ! az extension show --name containerapp >/dev/null 2>&1; then
-            az extension add --name containerapp
-          else
-            az extension update --name containerapp || true
-          fi
-
-      - name: Upload mosquitto.conf as secret
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -f "$CONF_PATH" || { echo "Missing $CONF_PATH" >&2; exit 1; }
-          # Läs filen och sätt som secret (mosqconf)
-          az containerapp secret set \
-            --name "$APP_NAME" \
-            --resource-group "$RG" \
-            --secrets "mosqconf=$(cat "$CONF_PATH")"
-
-      - name: Render manifest (replace __IMAGE__ if present)
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p .render
-          if grep -q "__IMAGE__" "$YAML_PATH"; then
-            sed "s|__IMAGE__|$IMAGE|g" "$YAML_PATH" > .render/mosquitto.containerapp.yaml
-          else
-            cp "$YAML_PATH" .render/mosquitto.containerapp.yaml
-          fi
-          echo "Using manifest: .render/mosquitto.containerapp.yaml"
-
-      - name: Deploy Container App from YAML (create or update)
-        shell: bash
-        run: |
-          set -euo pipefail
-          if az containerapp show -g "$RG" -n "$APP_NAME" >/dev/null 2>&1; then
-            echo "Container App exists — updating from YAML"
-            az containerapp update -g "$RG" -n "$APP_NAME" --yaml .render/mosquitto.containerapp.yaml || {
-              echo "Update failed; inspect YAML or recreate manually." >&2
-              exit 1
-            }
-          else
-            echo "Creating Container App from YAML"
-            az containerapp create -g "$RG" -n "$APP_NAME" --yaml .render/mosquitto.containerapp.yaml --environment "$ACA_ENV"
-          fi
-
-      - name: Final status and recent logs
-        shell: bash
-        run: |
-          set -euo pipefail
-          az containerapp show -g "$RG" -n "$APP_NAME" --query "{state:properties.provisioningState,latestRev:properties.latestRevisionName}" -o table
-          az containerapp logs show -g "$RG" -n "$APP_NAME" --tail 80 || true
+    - name: Deploy Mosquitto
+      run: |
+        az group create --name $RG --location westeurope
+        az containerapp create --name $APP_NAME \
+          --resource-group $RG \
+          --environment $ACA_ENV \
+          --image $IMAGE \
+          --yaml $YAML_PATH
+      env:
+        RG: iiot-poc-rg
+        ACA_ENV: iiot-env-public
+        APP_NAME: mosquitto
+        IMAGE: eclipse-mosquitto:2.0.18
+        YAML_PATH: infra/iiot-mosquitto.yaml
