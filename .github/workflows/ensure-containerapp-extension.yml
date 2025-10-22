@@ -1,0 +1,40 @@
+on: workflow_dispatch
+
+jobs:
+  ensure-containerapp:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install Azure CLI
+      uses: azure/setup-azure-cli@v3
+
+    - name: Ensure containerapp extension is installed and up-to-date
+      shell: bash
+      env:
+        AZURE_HTTP_USER_AGENT: "github-actions-ensure-containerapp"
+      run: |
+        set -euo pipefail
+
+        echo "Checking for existing 'containerapp' extension..."
+        if az extension show -n containerapp >/dev/null 2>&1; then
+          echo "containerapp extension already installed -> attempting update (no fail on update)"
+          az extension update -n containerapp || echo "Warning: extension update failed; continuing with installed version"
+        else
+          echo "containerapp extension not present -> attempting to install non-interactively"
+          if az extension add -n containerapp --yes >/dev/null 2>&1; then
+            echo "containerapp extension installed"
+          else
+            echo "Primary install failed. Gathering diagnostics and available versions..."
+            az extension list-available --query "[?name=='containerapp']" -o json || true
+            echo "Attempting install with debug output to help CI logs..."
+            az extension add -n containerapp --debug || {
+              echo "az extension add failed. CI job will fail so you can inspect logs above."
+              exit 1
+            }
+          fi
+        fi
+
+        echo "Installed/updated containerapp extension:"
+        az extension show -n containerapp || true
