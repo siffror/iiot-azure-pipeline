@@ -1,39 +1,40 @@
-name: deploy-mosquitto
+name: Deploy IIoT Mosquitto (Azure Container Apps)
+
 on:
   workflow_dispatch:
   push:
-    paths:
-      - 'infra/iiot-mosquitto.yaml'
+    branches:
+      - main   # eller vilken branch du använder
+
+permissions:
+  id-token: write   # krävs för OIDC
+  contents: read
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
+
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Az login (OIDC)
+      # 🔐 Azure login med OIDC (ingen secret!)
+      - name: Azure login (OIDC)
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Ensure mosquitto-conf secret on Container App
-        run: |
-          az extension add -n containerapp --upgrade
-          az containerapp secret set \
-            -g iiot-poc-rg -n mosquitto \
-            --secrets mosquitto-conf="${{ secrets.MOSQUITTO_CONF }}"
+      # 🧾 (Valfritt) verifiera inloggning
+      - name: Verify Azure context
+        run: az account show -o table
 
-      - name: Deploy mosquitto (YAML)
-        uses: azure/container-apps-deploy-action@v2
-        with:
-          resourceGroup: iiot-poc-rg
-          containerAppName: mosquitto
-          containerAppEnvironment: iiot-env-public
-          yamlConfigPath: infra/iiot-mosquitto.yaml
-          disableTelemetry: false
+      # 🚀 Ditt deploy-steg – t.ex. ACA deployment
+      - name: Deploy Mosquitto container
+        run: |
+          az containerapp update \
+            --name mosquitto \
+            --resource-group iiot-poc-rg \
+            --image siffror.azurecr.io/mosquitto:latest \
+            --query properties.latestRevisionFqdn -o tsv
