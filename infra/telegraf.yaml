@@ -1,58 +1,56 @@
-# Azure Container App - telegraf (no probes, secretref token, ACR image)
+# Azure Container App - telegraf (internal write to Influx, MQTT over public FQDN)
 type: Microsoft.App/containerApps
 apiVersion: 2024-08-02-preview
 name: telegraf
 location: North Europe
 properties:
   managedEnvironmentId: /subscriptions/5e58abe7-2302-449a-a7a2-35f2b3c4b886/resourceGroups/iiot-poc-rg/providers/Microsoft.App/managedEnvironments/iiot-env-public
+
   configuration:
     activeRevisionsMode: Single
     ingress: null
     registries:
       - server: iiotpocacr.azurecr.io
         identity: system
-        username: ""
-        passwordSecretRef: ""
-    # Behåll befintliga secrets (ingen value i klartext!)
     secrets:
       - name: telegraf-conf
-      - name: influx-token
       - name: influxdb-admin-token
         keyVaultUrl: https://iiotpockv.vault.azure.net/secrets/influxdb-admin-token/699ecb022ea243aeafb8285061cbb1e0
         identity: system
+
   template:
     containers:
       - name: telegraf
-        image: __ACR__/iiot-telegraf:__TAG__
+        image: iiotpocacr.azurecr.io/iiot-telegraf:__TAG__
+        # No command/args override: image entrypoint uses TELEGRAF_CONFIG_PATH
         env:
           - name: MQTT_URL
-            value: tcp://mosquitto:1883
+            value: tcp://mosquitto.happyisland-fa52694f.northeurope.azurecontainerapps.io:1883
           - name: INFLUX_URL
-            value: http://influxdb:8086
+            value: https://influxdb.internal.happyisland-fa52694f.northeurope.azurecontainerapps.io:8086
           - name: INFLUX_ORG
             value: iiot
           - name: INFLUX_BUCKET
             value: vibration
           - name: INFLUX_TOKEN
-            value: secretref:influxdb-admin-token
+            secretRef: influxdb-admin-token
           - name: TELEGRAF_CONFIG_PATH
             value: /etc/telegraf/telegraf.conf
         resources:
           cpu: 0.25
           memory: 0.5Gi
           ephemeralStorage: 1Gi
-        # OBS: Inga probes här (borttagna med flit)
         volumeMounts:
           - volumeName: telegraf-config
             mountPath: /etc/telegraf
+
     volumes:
       - name: telegraf-config
         storageType: Secret
         secrets:
           - secretRef: telegraf-conf
             path: telegraf.conf
-          - secretRef: influx-token
-            path: influx-token
+
     scale:
       minReplicas: 1
       maxReplicas: 1
