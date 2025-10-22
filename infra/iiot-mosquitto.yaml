@@ -6,37 +6,54 @@ properties:
   configuration:
     activeRevisionsMode: Single
     ingress:
-      external: false
+      external: false            # sätt true om du vill nås externt (kräver VNET för TCP)
       targetPort: 1883
       transport: tcp
       traffic:
         - latestRevision: true
           weight: 100
+    # 🔐 deklarera secret här (värdet sätts via CLI/Workflow – inte i filen)
+    secrets:
+      - name: mosqconf
+        value: ""                # lämna tomt i git; fylls via az containerapp secret set
   template:
     containers:
       - name: mosquitto
-        image: eclipse-mosquitto:2.0
+        image: eclipse-mosquitto:2.0  # stabil publikt tag; byt till din ACR-bild när du vill
         env:
           - name: TZ
             value: UTC
-        args: ["-c", "/mosquitto/config/mosquitto.conf", "-v"]
+        command:
+          - /usr/sbin/mosquitto
+        args:
+          - -c
+          - /appconfig/mosquitto.conf
+          - -v
         volumeMounts:
-          - volumeName: mosquitto-data
-            mountPath: /mosquitto/config
-            subPath: mosquitto/config
+          # ✅ montera ENDAST data-katalogen på Azure Files
           - volumeName: mosquitto-data
             mountPath: /mosquitto/data
+          # ✅ montera secret som FIL-katalog, inte över /mosquitto/config
+          - volumeName: mosqconfvol
+            mountPath: /appconfig
         probes:
           - type: Liveness
-            tcpSocket: { port: 1883 }
+            tcpSocket:
+              port: 1883
             initialDelaySeconds: 10
             periodSeconds: 10
             failureThreshold: 3
           - type: Readiness
-            tcpSocket: { port: 1883 }
+            tcpSocket:
+              port: 1883
             initialDelaySeconds: 5
             periodSeconds: 10
     volumes:
+      # 🗂️ Azure Files (data)
       - name: mosquitto-data
         storageType: AzureFile
         storageName: mosquitto-data-storage
+      # 🔐 Secret-volym för konfigfilen
+      - name: mosqconfvol
+        secret:
+          secretRef: mosqconf
