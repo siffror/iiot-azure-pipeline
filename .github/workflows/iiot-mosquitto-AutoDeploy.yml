@@ -3,19 +3,19 @@ name: iiot-mosquitto-AutoDeploy
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]   # must match your federated credential subject exactly (see notes below)
+    branches: [ main ]   # måste matcha din federated credential subject exakt
 
 permissions:
-  id-token: write        # Required for OIDC (workload identity)
+  id-token: write        # krävs för OIDC
   contents: read
 
 env:
   RG: "iiot-poc-rg"
   ACA_ENV: "iiot-env-public"
   APP_NAME: "mosquitto"
-  IMAGE: "eclipse-mosquitto:2.0.18"          # change to siffror.azurecr.io/mosquitto:latest when ready
-  YAML_PATH: "infra/iiot-mosquitto.yaml"     # your container app manifest
-  CONF_PATH: "mosquitto/mosquitto.conf"      # your mosquitto config file in repo
+  IMAGE: "eclipse-mosquitto:2.0.18"
+  YAML_PATH: "infra/iiot-mosquitto.yaml"
+  CONF_PATH: "mosquitto/mosquitto.conf"
 
 jobs:
   deploy:
@@ -38,11 +38,10 @@ jobs:
       - name: Azure login (OIDC)
         uses: azure/login@v2
         with:
-          # For OIDC-based workload identity federation do NOT set auth-type or creds.
-          # Provide the App (client) ID + tenant + subscription. The action will use OIDC automatically.
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}             # App registration (client) ID
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}             # Azure AD tenant ID
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }} # Azure subscription ID
+          # För OIDC: låt auth-type/creds vara utelämnat — action auto-detekterar OIDC via id-token permission.
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           enable-AzPSSession: false
           environment: azurecloud
           allow-no-subscriptions: false
@@ -51,7 +50,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "Azure account:"
           az account show -o table
 
       - name: Ensure containerapp extension
@@ -69,7 +67,6 @@ jobs:
         run: |
           set -euo pipefail
           test -f "$CONF_PATH" || { echo "Missing $CONF_PATH" >&2; exit 1; }
-          # Read file safely into variable (preserve newlines), then pass as secret value.
           mosq_conf=$(printf '%s\n' "$(cat "$CONF_PATH")")
           az containerapp secret set \
             --name "$APP_NAME" \
@@ -95,7 +92,7 @@ jobs:
           if az containerapp show -g "$RG" -n "$APP_NAME" >/dev/null 2>&1; then
             echo "Container App exists — attempting update from YAML"
             az containerapp update -g "$RG" -n "$APP_NAME" --yaml .render/mosquitto.containerapp.yaml || {
-              echo "Update via --yaml failed; trying to patch properties or recreate." >&2
+              echo "Update via --yaml failed; try inspecting YAML or recreate." >&2
             }
           else
             echo "Container App not found — creating from YAML"
@@ -106,7 +103,5 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "Container App status:"
           az containerapp show -g "$RG" -n "$APP_NAME" --query "{state:properties.provisioningState,latestRev:properties.latestRevisionName}" -o table
-          echo "Last logs (tail 80):"
           az containerapp logs show -g "$RG" -n "$APP_NAME" --tail 80 || true
