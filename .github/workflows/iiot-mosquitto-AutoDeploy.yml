@@ -9,13 +9,13 @@ on:
       - '.github/workflows/iiot-mosquitto-AutoDeploy.yml'
       - 'mosquitto/**'   # t.ex. mosquitto/mosquitto.conf
 
-# Hindra dubbla körningar på samma ref
+# Concurrency per workflow (hindrar parallella körningar av denna fil på samma ref)
 concurrency:
-  group: mosquitto-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
-  id-token: write        # krävs för OIDC
+  id-token: write
   contents: read
 
 env:
@@ -29,11 +29,9 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      # --- Källkod ---
       - name: Checkout
         uses: actions/checkout@v4
 
-      # --- Azure OIDC-login (inga creds/auth-type) ---
       - name: Azure login (OIDC)
         uses: azure/login@v2
         with:
@@ -41,60 +39,46 @@ jobs:
           tenant-id: ${{ secrets.IIOTFFTSERVICE_AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.IIOTFFTSERVICE_AZURE_SUBSCRIPTION_ID }}
 
-      # --- CLI-förutsättningar ---
       - name: Ensure latest containerapp extension
         run: |
           set -euo pipefail
-          echo "az version:"
-          az --version || true
-          echo "Attempting to update the containerapp extension..."
-          # Try update, fallback to add, as last resort remove+add
           az extension update -n containerapp || az extension add -n containerapp || (az extension remove -n containerapp && az extension add -n containerapp)
-          echo "containerapp extension details:"
-          az extension show -n containerapp || az extension list
 
       - name: Sanity check
         run: |
           az account show -o table
           az containerapp env show -g "$RG" -n "$ACA_ENV" --query location -o tsv
 
-      # --- Ladda upp mosquitto.conf som secret i ACA ---
-      #    Secret-namn: mosquitto-conf  (matchar volymen i infra/iiot-mosquitto.yaml)
       - name: Upload mosquitto.conf as secret (mosquitto-conf)
         shell: bash
         run: |
           set -euo pipefail
           test -f "$CONF_PATH" || { echo "Missing $CONF_PATH" >&2; exit 1; }
-          az containerapp secret set -g "$RG" -n "$APP_NAME" \
-            --secrets "mosquitto-conf=$(<"$CONF_PATH")"
-          # Visa endast namn på secrets (inte värden)
+          az containerapp secret set -g "$RG" -n "$APP_NAME" --secrets "mosquitto-conf=$(<"$CONF_PATH")"
           az containerapp secret list -g "$RG" -n "$APP_NAME" -o table
 
-      # --- Deployera från YAML (create/update) ---
       - name: Deploy Container App from YAML (create or update)
         shell: bash
         run: |
           set -euo pipefail
+          # Snabb YAML-validering (fångar datumsträngar etc.)
+          python3 - <<'PY'
+          import yaml; d=yaml.safe_load(open("infra/iiot-mosquitto.yaml")); print("YAML OK:", d.get("apiVersion"))
+          PY
           if az containerapp show -g "$RG" -n "$APP_NAME" >/dev/null 2>&1; then
             echo "Updating existing Container App from YAML..."
             az containerapp update -g "$RG" -n "$APP_NAME" --yaml "$YAML_PATH"
           else
             echo "Creating new Container App from YAML..."
-            az containerapp create -g "$RG" -n "$APP_NAME" \
-              --yaml "$YAML_PATH" \
-              --environment "$ACA_ENV"
+            az containerapp create -g "$RG" -n "$APP_NAME" --yaml "$YAML_PATH" --environment "$ACA_ENV"
           fi
 
-      # --- Status & loggar ---
       - name: Final status and recent logs
         run: |
-          az containerapp show -g "$RG" -n "$APP_NAME" \
-            --query "{state:properties.provisioningState,latestRev:properties.latestRevisionName}" -o table
+          az containerapp show -g "$RG" -n "$APP_NAME" --query "{state:properties.provisioningState,latestRev:properties.latestRevisionName}" -o table
           az containerapp logs show -g "$RG" -n "$APP_NAME" --tail 100 || true
 
-      # --- (Valfritt) Städa gamla inaktiva revisioner ---
       - name: Cleanup old inactive revisions
         run: |
-          az containerapp revision list -g "$RG" -n "$APP_NAME" \
-            --query "[?properties.active==\`false\`].name" -o tsv | \
+          az containerapp revision list -g "$RG" -n "$APP_NAME" --query "[?properties.active==\`false\`].name" -o tsv | \
           xargs -r -I {} az containerapp revision delete -g "$RG" -n "$APP_NAME" --revision {} --yes
