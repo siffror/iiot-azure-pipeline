@@ -7,24 +7,23 @@ properties:
   configuration:
     activeRevisionsMode: Single
     ingress:
-      external: false            # sätt true om du vill nås externt (kräver VNET för TCP i många konfigurationer)
+      external: false            # sätt true om du vill nås externt (kräver VNET/konfiguration för TCP)
       targetPort: 1883
       transport: tcp
       traffic:
         - latestRevision: true
           weight: 100
-    # 🔐 deklarera secret här (värdet sätts via CLI/Workflow – inte i filen)
+    # Secret deklareras här men lämnas tom i Git (sätts via CLI/workflow)
     secrets:
       - name: mosqconf
-        value: ""                # lämna tomt i git; fylls via az containerapp secret set
+        value: ""
   template:
     containers:
       - name: mosquitto
-        image: __IMAGE__         # placeholder — ersätt via CI (workflow gör sed/replace)
+        image: __IMAGE__         # placeholder — byts av workflow
         env:
           - name: TZ
             value: UTC
-        # Kör mosquitto med din konfig-fil som mountas som fil i /appconfig
         command:
           - /usr/sbin/mosquitto
         args:
@@ -35,10 +34,8 @@ properties:
           cpu: 0.5
           memory: 1.0Gi
         volumeMounts:
-          # ✅ montera ENDAST data-katalogen på Azure Files
           - volumeName: mosquitto-data
             mountPath: /mosquitto/data
-          # 🔐 montera secret som FIL-katalog (innehåller mosquitto.conf)
           - volumeName: mosqconfvol
             mountPath: /appconfig
         probes:
@@ -57,11 +54,9 @@ properties:
       minReplicas: 1
       maxReplicas: 1
     volumes:
-      # 🗂️ Azure Files (data) — storageName måste existera som en storage binding i Managed Environment
       - name: mosquitto-data
         storageType: AzureFile
-        storageName: mosquitto-data-storage
-      # 🔐 Secret-volym för konfigfilen (refererar till secrets.name ovan)
+        storageName: mosquitto-data-storage   # måste finnas som storage binding i Managed Environment
       - name: mosqconfvol
         secret:
           secretRef: mosqconf
