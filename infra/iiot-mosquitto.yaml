@@ -1,15 +1,18 @@
+# infra/iiot-mosquitto.yaml
 type: Microsoft.App/containerApps
-apiVersion: "2024-03-01"
+apiVersion: "2024-03-01"     # Viktigt: citattecken så den inte tolkas som datum
 name: mosquitto
 location: North Europe
 properties:
   managedEnvironmentId: /subscriptions/5e58abe7-2302-449a-a7a2-35f2b3c4b886/resourceGroups/iiot-poc-rg/providers/Microsoft.App/managedEnvironments/iiot-env-public
+
   configuration:
     ingress:
       external: true
       targetPort: 1883
       transport: tcp
       exposedPort: 1883
+
   template:
     containers:
       - name: mosquitto
@@ -19,15 +22,27 @@ properties:
         resources:
           cpu: 0.5
           memory: 1Gi
+        # (Valfritt) probes som gör uppstart stabilare
+        # livenessProbe:
+        #   httpGet:
+        #     port: 1883
+        #   initialDelaySeconds: 10
+        #   periodSeconds: 10
+        # readinessProbe:
+        #   tcpSocket:
+        #     port: 1883
+        #   initialDelaySeconds: 5
+        #   periodSeconds: 5
         volumeMounts:
           - volumeName: mosquitto-conf
             mountPath: /mosquitto/config
           - volumeName: mosquitto-data
             mountPath: /mosquitto/data
+
     volumes:
       - name: mosquitto-conf
         secretRef:
-          secretName: mosquitto-conf
+          secretName: mosquitto-conf      # måste finnas i appen (Actions-steget sätter den)
       - name: mosquitto-data
         storageType: AzureFile
-        storageName: mosquitto-data-storage
+        storageName: mosquitto-data-storage  # <-- BYT till ditt riktiga Environment Storage-namn
