@@ -1,33 +1,36 @@
-name: Deploy IIoT Mosquitto (OIDC + YAML)
+name: iiot-mosquitto-AutoDeploy
 
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main  # ska matcha din federated credential
+    branches: [ main ]
 
 permissions:
   id-token: write
   contents: read
 
 env:
-  # ======= CONFIRM BEFORE NAMING =======
-  RG: "iiot-poc-rg"              # <— bekräfta eller ändra
-  ACA_ENV: "iiot-env-public"     # <— bekräfta eller ändra
-  APP_NAME: "mosquitto"          # <— behåll om appen heter så
-  IMAGE: "eclipse-mosquitto:2.0"  # eller din ACR-bild, t.ex. siffror.azurecr.io/mosquitto:latest
-  YAML_PATH: "infra/iiot-mosquitto.yaml"  # placering i repo
-  CONF_PATH: "mosquitto/mosquitto.conf"               # din conf i repo (se fil 2 nedan)
-  # =====================================
+  RG: "iiot-poc-rg"
+  ACA_ENV: "iiot-env-public"
+  APP_NAME: "mosquitto"
+  IMAGE: "eclipse-mosquitto:2.0"
+  YAML_PATH: "infra/iiot-mosquitto.yaml"
+  CONF_PATH: "mosquitto/mosquitto.conf"
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # 🔐 Azure login via OIDC (no creds/auth-type)
+      - name: Preflight OIDC config
+        shell: bash
+        run: |
+          (grep -RniE 'auth-type|creds:' .github/workflows && echo "ERROR: Found legacy auth config" && exit 1) || echo "OK: No creds/auth-type"
+          [[ -n "${{ secrets.AZURE_CLIENT_ID }}" ]] || { echo "Missing AZURE_CLIENT_ID"; exit 1; }
+          [[ -n "${{ secrets.AZURE_TENANT_ID }}" ]] || { echo "Missing AZURE_TENANT_ID"; exit 1; }
+          [[ -n "${{ secrets.AZURE_SUBSCRIPTION_ID }}" ]] || { echo "Missing AZURE_SUBSCRIPTION_ID"; exit 1; }
+
       - name: Azure login (OIDC)
         uses: azure/login@v2
         with:
@@ -35,28 +38,22 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      # 🧾 Verify context
       - name: Verify Azure context
         run: az account show -o table
 
-      # 📦 Ensure containerapp extension
       - name: Ensure containerapp extension
         run: az extension add --name containerapp --upgrade
 
-      # 🔐 Create/Update secret from repo file (mosquitto.conf)
       - name: Upload mosquitto.conf as secret
+        shell: bash
         run: |
-          if [ ! -f "$CONF_PATH" ]; then
-            echo "Missing $CONF_PATH in repo" && exit 1
-          fi
+          test -f "$CONF_PATH" || { echo "Missing $CONF_PATH"; exit 1; }
           az containerapp secret set \
             --name "$APP_NAME" \
             --resource-group "$RG" \
-            --secrets mosqconf="$(cat "$CONF_PATH")"
+            --secrets "mosquitto.conf=$(cat "$CONF_PATH")"
 
-      # 📝 Templatize YAML with current IMAGE (keeps repo file clean)
-      
-      - name: Render YAML with image (if placeholder exists)
+      - name: Render YAML
         shell: bash
         run: |
           mkdir -p .render
@@ -65,26 +62,12 @@ jobs:
           else
             cp "$YAML_PATH" .render/mosquitto.containerapp.yaml
           fi
-          echo "Using YAML: .render/mosquitto.containerapp.yaml"
 
-
-      # 🚀 Apply YAML to the existing app (create if missing)
       - name: Deploy Container App from YAML
         shell: bash
         run: |
-          # Create if not exist, else update
           if az containerapp show -g "$RG" -n "$APP_NAME" >/dev/null 2>&1; then
-            az containerapp update \
-              -g "$RG" -n "$APP_NAME" \
-              --yaml .render/mosquitto.containerapp.yaml
+            az containerapp update -g "$RG" -n "$APP_NAME" --yaml .render/mosquitto.containerapp.yaml
           else
-            az containerapp create \
-              -g "$RG" -n "$APP_NAME" \
-              --yaml .render/mosquitto.containerapp.yaml
+            az containerapp create -g "$RG" -n "$APP_NAME" --yaml .render/mosquitto.containerapp.yaml --environment "$ACA_ENV"
           fi
-
-      # ✅ Status + tail logs
-      - name: Final status
-        run: |
-          az containerapp show -g "$RG" -n "$APP_NAME" --query "{state:properties.provisioningState,rev:properties.latestRevisionName}" -o table
-          az containerapp logs show -g "$RG" -n "$APP_NAME" --tail 50 || true
