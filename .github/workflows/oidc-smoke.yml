@@ -4,29 +4,39 @@ on:
   workflow_dispatch:
 
 permissions:
-  id-token: write
+  id-token: write      # Required for OIDC (GitHub issues an ID token to the job)
   contents: read
 
 jobs:
   smoke:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Sanity check repo for legacy auth
+      - name: Guard: block legacy SP auth
         shell: bash
         run: |
-          echo "Scanning for 'auth-type'/'creds'/'AZURE_CREDENTIALS'..."
-          (grep -RniE 'auth-type|creds:|AZURE_CREDENTIALS' .github/workflows && exit 1) || echo "OK"
+          echo "Scanning .github/workflows for legacy auth (auth-type/creds/AZURE_CREDENTIALS)..."
+          # If any of these are found, fail fast to avoid falling back to Service Principal auth
+          (grep -RniE 'auth-type|creds:|AZURE_CREDENTIALS' .github/workflows \
+            && echo "Found legacy auth config. Remove it before proceeding." && exit 1) || echo "OK: No legacy auth found"
+
+      - name: Debug context (non-secret)
+        shell: bash
+        run: |
+          echo "GITHUB_REF=${GITHUB_REF}"
+          echo "GITHUB_REF_NAME=${GITHUB_REF_NAME}"
+          echo "GITHUB_EVENT_NAME=${GITHUB_EVENT_NAME}"
+          echo "Runner OIDC permission is set (id-token: write)"
 
       - name: Azure login (OIDC)
         uses: azure/login@v2
         with:
-          # (Valfritt men ibland nödvändigt att T V I N G A ) 
-          auth-type: id-token
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          # Do NOT set 'auth-type' for OIDC; leaving it out enables OIDC automatically.
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}         # App registration (client) ID
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}         # AAD tenant ID
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }} # Azure subscription ID
 
-      - name: Verify
+      - name: Verify account
         run: az account show -o table
