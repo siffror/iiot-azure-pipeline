@@ -1,66 +1,106 @@
-name: Auto deploy feature_service
+name: iiot-mosquitto-AutoDeploy
 
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - 'feature_service/**'
-      - 'infra/iiot-feature-service.yaml'
-      - '.github/workflows/iiot-feature-AutoDeploy.yml'
   workflow_dispatch:
-
-# Hindra parallella körningar som krockar
-concurrency:
-  group: feature-service
-  cancel-in-progress: true
+  push:
+    branches: [ main ]   # måste matcha din federated credential subject exakt
 
 permissions:
-  id-token: write
+  id-token: write        # krävs för OIDC
   contents: read
 
+env:
+  RG: "iiot-poc-rg"
+  ACA_ENV: "iiot-env-public"
+  APP_NAME: "mosquitto"
+  IMAGE: "eclipse-mosquitto:2.0.18"
+  YAML_PATH: "infra/iiot-mosquitto.yaml"
+  CONF_PATH: "mosquitto/mosquitto.conf"
+
 jobs:
-  build-deploy:
+  deploy:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # -------------------------------------------------------------
+      # Azure-inloggning via OIDC (inga creds, ingen auth-type)
+      # -------------------------------------------------------------
       - name: Azure login (OIDC)
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.IIOTFFTSERVICE_AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.IIOTFFTSERVICE_AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.IIOTFFTSERVICE_AZURE_SUBSCRIPTION_ID }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          environment: azurecloud
 
-      - name: ACR login
-        run: az acr login -n iiotpocacr
+      - name: Verify Azure context
+        run: az account show -o table
 
-      - name: Build & push image to ACR
+      # -------------------------------------------------------------
+      # Säkerställ att containerapp-extensionen finns
+      # -------------------------------------------------------------
+      - name: Ensure containerapp extension
         run: |
-          REPO=iiotpocacr.azurecr.io/feature-service   # <— OBS: bindestreck. Byt till feature_service om ditt ACR-repo heter så.
-          docker build -f feature_service/Dockerfile -t $REPO:${{ github.sha }} -t $REPO:latest feature_service
-          docker push $REPO:${{ github.sha }}
-          docker push $REPO:latest
-          echo "IMAGE=$REPO:${{ github.sha }}" >> $GITHUB_ENV
-          
+          set -euo pipefail
+          if ! az extension show --name containerapp >/dev/null 2>&1; then
+            az extension add --name containerapp
+          else
+            az extension update --name containerapp || true
+          fi
 
-      # Deploy via YAML + sätt app-secrets här (ingen separat CLI, ingen race)
-      - name: Deploy feature-service (YAML)
-        uses: azure/container-apps-deploy-action@v2
-        with:
-          resourceGroup: iiot-poc-rg
-          containerAppName: feature-service
-          yamlConfigPath: infra/iiot-feature-service.yaml
-          imageToDeploy: ${{ env.IMAGE }}
-          secrets: |
-            influxdb-admin-token=${{ secrets.INFLUXDB_ADMIN_TOKEN }}
-          disableTelemetry: false
-
-      # (Valfritt) städa inaktiva revisioner
-      - name: Cleanup old inactive revisions
+      # -------------------------------------------------------------
+      # Ladda upp mosquitto.conf som hemlighet i ACA
+      # -------------------------------------------------------------
+      - name: Upload mosquitto.conf as secret
         run: |
-          az extension add -n containerapp --upgrade
-          az containerapp revision list -g iiot-poc-rg -n feature-service \
-            --query "[?properties.active==\`false\`].name" -o tsv | \
-          xargs -r -I {} az containerapp revision delete \
-            -g iiot-poc-rg -n feature-service --revision {} --yes
+          set -euo pipefail
+          test -f "$CONF_PATH" || { echo "❌ Missing $CONF_PATH" >&2; exit 1; }
+          echo "Uploading mosquitto.conf as secret 'mosqconf'..."
+          az containerapp secret set \
+            --name "$APP_NAME" \
+            --resource-group "$RG" \
+            --secrets "mosqconf=$(<"$CONF_PATH")"
+
+      # -------------------------------------------------------------
+      # Rendera manifest (ersätt __IMAGE__ om det finns)
+      # -------------------------------------------------------------
+      - name: Render manifest (replace __IMAGE__ if present)
+        run: |
+          set -euo pipefail
+          mkdir -p .render
+          if grep -q "__IMAGE__" "$YAML_PATH"; then
+            sed "s|__IMAGE__|$IMAGE|g" "$YAML_PATH" > .render/mosquitto.containerapp.yaml
+          else
+            cp "$YAML_PATH" .render/mosquitto.containerapp.yaml
+          fi
+          echo "Using manifest: .render/mosquitto.containerapp.yaml"
+
+      # -------------------------------------------------------------
+      # Deploy eller uppdatera Container App
+      # -------------------------------------------------------------
+      - name: Deploy Container App from YAML (create or update)
+        run: |
+          set -euo pipefail
+          if az containerapp show -g "$RG" -n "$APP_NAME" >/dev/null 2>&1; then
+            echo "Updating existing Container App from YAML..."
+            az containerapp update -g "$RG" -n "$APP_NAME" \
+              --yaml .render/mosquitto.containerapp.yaml
+          else
+            echo "Creating new Container App from YAML..."
+            az containerapp create -g "$RG" -n "$APP_NAME" \
+              --yaml .render/mosquitto.containerapp.yaml \
+              --environment "$ACA_ENV"
+          fi
+
+      # -------------------------------------------------------------
+      # Slutstatus och loggutdrag
+      # -------------------------------------------------------------
+      - name: Final status and recent logs
+        run: |
+          set -euo pipefail
+          az containerapp show -g "$RG" -n "$APP_NAME" \
+            --query "{state:properties.provisioningState,latestRev:properties.latestRevisionName}" -o table
+          az containerapp logs show -g "$RG" -n "$APP_NAME" --tail 80 || true
