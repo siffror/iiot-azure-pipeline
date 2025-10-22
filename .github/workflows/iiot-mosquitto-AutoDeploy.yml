@@ -7,9 +7,8 @@ on:
     paths:
       - 'infra/iiot-mosquitto.yaml'
       - '.github/workflows/iiot-mosquitto-AutoDeploy.yml'
-      - 'mosquitto/**'   # t.ex. mosquitto/mosquitto.conf
+      - 'mosquitto/**'
 
-# Concurrency per workflow (hindrar parallella körningar av denna fil på samma ref)
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -50,7 +49,6 @@ jobs:
           az containerapp env show -g "$RG" -n "$ACA_ENV" --query location -o tsv
 
       - name: Upload mosquitto.conf as secret (mosquitto-conf)
-        shell: bash
         run: |
           set -euo pipefail
           test -f "$CONF_PATH" || { echo "Missing $CONF_PATH" >&2; exit 1; }
@@ -58,13 +56,8 @@ jobs:
           az containerapp secret list -g "$RG" -n "$APP_NAME" -o table
 
       - name: Deploy Container App from YAML (create or update)
-        shell: bash
         run: |
           set -euo pipefail
-          # Snabb YAML-validering (fångar datumsträngar etc.)
-          python3 - <<'PY'
-          import yaml; d=yaml.safe_load(open("infra/iiot-mosquitto.yaml")); print("YAML OK:", d.get("apiVersion"))
-          PY
           if az containerapp show -g "$RG" -n "$APP_NAME" >/dev/null 2>&1; then
             echo "Updating existing Container App from YAML..."
             az containerapp update -g "$RG" -n "$APP_NAME" --yaml "$YAML_PATH"
@@ -80,5 +73,4 @@ jobs:
 
       - name: Cleanup old inactive revisions
         run: |
-          az containerapp revision list -g "$RG" -n "$APP_NAME" --query "[?properties.active==\`false\`].name" -o tsv | \
-          xargs -r -I {} az containerapp revision delete -g "$RG" -n "$APP_NAME" --revision {} --yes
+          az containerapp revision list -g "$RG" -n "$APP_NAME" --query "[?properties.active==\`false\`].name" -o tsv | xargs -r -I {} az containerapp revision delete -g "$RG" -n "$APP_NAME" --revision {} --yes
