@@ -42,8 +42,16 @@ jobs:
           subscription-id: ${{ secrets.IIOTFFTSERVICE_AZURE_SUBSCRIPTION_ID }}
 
       # --- CLI-förutsättningar ---
-      - name: Ensure containerapp extension
-        run: az extension add --name containerapp --upgrade
+      - name: Ensure latest containerapp extension
+        run: |
+          set -euo pipefail
+          echo "az version:"
+          az --version || true
+          echo "Attempting to update the containerapp extension..."
+          # Try update, fallback to add, as last resort remove+add
+          az extension update -n containerapp || az extension add -n containerapp || (az extension remove -n containerapp && az extension add -n containerapp)
+          echo "containerapp extension details:"
+          az extension show -n containerapp || az extension list
 
       - name: Sanity check
         run: |
