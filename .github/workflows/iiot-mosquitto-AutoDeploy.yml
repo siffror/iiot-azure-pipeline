@@ -1,24 +1,33 @@
-name: Deploy IIoT Mosquitto (Azure Container Apps)
+name: Deploy IIoT Mosquitto (OIDC + YAML)
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - main   # eller vilken branch du använder
+      - main  # ska matcha din federated credential
 
 permissions:
-  id-token: write   # krävs för OIDC
+  id-token: write
   contents: read
+
+env:
+  # ======= CONFIRM BEFORE NAMING =======
+  RG: "iiot-poc-rg"              # <— bekräfta eller ändra
+  ACA_ENV: "iiot-env-public"     # <— bekräfta eller ändra
+  APP_NAME: "mosquitto"          # <— behåll om appen heter så
+  IMAGE: "eclipse-mosquitto:2.0"  # eller din ACR-bild, t.ex. siffror.azurecr.io/mosquitto:latest
+  YAML_PATH: "infra/iiot-mosquitto.yaml"  # placering i repo
+  CONF_PATH: "mosquitto/mosquitto.conf"               # din conf i repo (se fil 2 nedan)
+  # =====================================
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      # 🔐 Azure login med OIDC (ingen secret!)
+      # 🔐 Azure login via OIDC (no creds/auth-type)
       - name: Azure login (OIDC)
         uses: azure/login@v2
         with:
@@ -26,15 +35,56 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      # 🧾 (Valfritt) verifiera inloggning
+      # 🧾 Verify context
       - name: Verify Azure context
         run: az account show -o table
 
-      # 🚀 Ditt deploy-steg – t.ex. ACA deployment
-      - name: Deploy Mosquitto container
+      # 📦 Ensure containerapp extension
+      - name: Ensure containerapp extension
+        run: az extension add --name containerapp --upgrade
+
+      # 🔐 Create/Update secret from repo file (mosquitto.conf)
+      - name: Upload mosquitto.conf as secret
         run: |
-          az containerapp update \
-            --name mosquitto \
-            --resource-group iiot-poc-rg \
-            --image siffror.azurecr.io/mosquitto:latest \
-            --query properties.latestRevisionFqdn -o tsv
+          if [ ! -f "$CONF_PATH" ]; then
+            echo "Missing $CONF_PATH in repo" && exit 1
+          fi
+          az containerapp secret set \
+            --name "$APP_NAME" \
+            --resource-group "$RG" \
+            --secrets mosqconf="$(cat "$CONF_PATH")"
+
+      # 📝 Templatize YAML with current IMAGE (keeps repo file clean)
+      
+      - name: Render YAML with image (if placeholder exists)
+        shell: bash
+        run: |
+          mkdir -p .render
+          if grep -q "__IMAGE__" "$YAML_PATH"; then
+            sed "s|__IMAGE__|$IMAGE|g" "$YAML_PATH" > .render/mosquitto.containerapp.yaml
+          else
+            cp "$YAML_PATH" .render/mosquitto.containerapp.yaml
+          fi
+          echo "Using YAML: .render/mosquitto.containerapp.yaml"
+
+
+      # 🚀 Apply YAML to the existing app (create if missing)
+      - name: Deploy Container App from YAML
+        shell: bash
+        run: |
+          # Create if not exist, else update
+          if az containerapp show -g "$RG" -n "$APP_NAME" >/dev/null 2>&1; then
+            az containerapp update \
+              -g "$RG" -n "$APP_NAME" \
+              --yaml .render/mosquitto.containerapp.yaml
+          else
+            az containerapp create \
+              -g "$RG" -n "$APP_NAME" \
+              --yaml .render/mosquitto.containerapp.yaml
+          fi
+
+      # ✅ Status + tail logs
+      - name: Final status
+        run: |
+          az containerapp show -g "$RG" -n "$APP_NAME" --query "{state:properties.provisioningState,rev:properties.latestRevisionName}" -o table
+          az containerapp logs show -g "$RG" -n "$APP_NAME" --tail 50 || true
