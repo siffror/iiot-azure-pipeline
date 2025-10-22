@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  id-token: write     # krävs för OIDC
+  id-token: write        # krävs för OIDC
   contents: read
 
 env:
@@ -28,7 +28,6 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
       # --- Källkod ---
       - name: Checkout
@@ -38,9 +37,9 @@ jobs:
       - name: Azure login (OIDC)
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          client-id: ${{ secrets.IIOTFFTSERVICE_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.IIOTFFTSERVICE_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.IIOTFFTSERVICE_AZURE_SUBSCRIPTION_ID }}
 
       # --- CLI-förutsättningar ---
       - name: Ensure containerapp extension
@@ -52,7 +51,7 @@ jobs:
           az containerapp env show -g "$RG" -n "$ACA_ENV" --query location -o tsv
 
       # --- Ladda upp mosquitto.conf som secret i ACA ---
-      #   Secret-namn: mosquitto-conf  (matchar YAML-volymen)
+      #    Secret-namn: mosquitto-conf  (matchar volymen i infra/iiot-mosquitto.yaml)
       - name: Upload mosquitto.conf as secret (mosquitto-conf)
         shell: bash
         run: |
@@ -70,8 +69,7 @@ jobs:
           set -euo pipefail
           if az containerapp show -g "$RG" -n "$APP_NAME" >/dev/null 2>&1; then
             echo "Updating existing Container App from YAML..."
-            az containerapp update -g "$RG" -n "$APP_NAME" \
-              --yaml "$YAML_PATH"
+            az containerapp update -g "$RG" -n "$APP_NAME" --yaml "$YAML_PATH"
           else
             echo "Creating new Container App from YAML..."
             az containerapp create -g "$RG" -n "$APP_NAME" \
