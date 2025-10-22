@@ -13,7 +13,7 @@ env:
   RG: "iiot-poc-rg"
   ACA_ENV: "iiot-env-public"
   APP_NAME: "mosquitto"
-  IMAGE: "eclipse-mosquitto:2.0.18"
+  IMAGE: "eclipse-mosquitto:2.0"
   YAML_PATH: "infra/iiot-mosquitto.yaml"
   CONF_PATH: "mosquitto/mosquitto.conf"
 
