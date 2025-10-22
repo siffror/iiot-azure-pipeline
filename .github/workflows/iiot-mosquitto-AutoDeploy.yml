@@ -3,38 +3,43 @@ name: iiot-mosquitto-AutoDeploy
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [ main ]   # must match your federated credential subject
 
 permissions:
-  id-token: write
+  id-token: write        # Required for OIDC (workload identity)
   contents: read
 
 env:
   RG: "iiot-poc-rg"
   ACA_ENV: "iiot-env-public"
   APP_NAME: "mosquitto"
-  IMAGE: "eclipse-mosquitto:2.0"
-  YAML_PATH: "infra/iiot-mosquitto.yaml"
-  CONF_PATH: "mosquitto/mosquitto.conf"
+  IMAGE: "eclipse-mosquitto:2.0.18"          # change to siffror.azurecr.io/mosquitto:latest when ready
+  YAML_PATH: "infra/iiot-mosquitto.yaml"     # your container app manifest
+  CONF_PATH: "mosquitto/mosquitto.conf"      # your mosquitto config file in repo
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - name: Guard block legacy auth
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Guard block legacy SP auth
         shell: bash
         run: |
-          (grep -RniE 'auth-type|creds:|AZURE_CREDENTIALS' .github/workflows && echo "Found legacy auth. Fix before proceeding." && exit 1) || echo "OK"
+          echo "Scanning .github/workflows for legacy auth (auth-type/creds/AZURE_CREDENTIALS)..."
+          # If any of these are found, fail fast to avoid falling back to Service Principal auth
+          (grep -RniE 'auth-type|creds:|AZURE_CREDENTIALS' .github/workflows \
+            && echo "Found legacy auth config. Remove it before proceeding." && exit 1) || echo "OK: No legacy auth found"
 
       - name: Azure login (OIDC)
         uses: azure/login@v2
         with:
-          auth-type: id-token
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          # Do NOT set 'auth-type' for OIDC; leaving it out enables OIDC automatically.
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}             # App registration (client) ID
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}             # Azure AD tenant ID
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }} # Azure subscription ID
 
       - name: Verify Azure context
         run: az account show -o table
@@ -45,23 +50,42 @@ jobs:
       - name: Upload mosquitto.conf as secret
         shell: bash
         run: |
+          # Upload the file as a secret named 'mosquitto.conf' so it becomes /appconfig/mosquitto.conf when mounted
           test -f "$CONF_PATH" || { echo "Missing $CONF_PATH"; exit 1; }
           az containerapp secret set \
             --name "$APP_NAME" \
             --resource-group "$RG" \
             --secrets "mosquitto.conf=$(cat "$CONF_PATH")"
 
-      - name: Render YAML
+      - name: Render YAML (no-op if no placeholder)
         shell: bash
         run: |
+          # If your manifest contains __IMAGE__, replace it; otherwise just copy
           mkdir -p .render
-          cp "$YAML_PATH" .render/mosquitto.containerapp.yaml
+          if grep -q "__IMAGE__" "$YAML_PATH"; then
+            sed "s|__IMAGE__|$IMAGE|g" "$YAML_PATH" > .render/mosquitto.containerapp.yaml
+          else
+            cp "$YAML_PATH" .render/mosquitto.containerapp.yaml
+          fi
+          echo "Using manifest: .render/mosquitto.containerapp.yaml"
 
       - name: Deploy Container App from YAML
         shell: bash
         run: |
+          # Create the app if it does not exist; otherwise update it idempotently from YAML
           if az containerapp show -g "$RG" -n "$APP_NAME" >/dev/null 2>&1; then
-            az containerapp update -g "$RG" -n "$APP_NAME" --yaml .render/mosquitto.containerapp.yaml
+            az containerapp update \
+              -g "$RG" -n "$APP_NAME" \
+              --yaml .render/mosquitto.containerapp.yaml
           else
-            az containerapp create -g "$RG" -n "$APP_NAME" --yaml .render/mosquitto.containerapp.yaml --environment "$ACA_ENV"
+            az containerapp create \
+              -g "$RG" -n "$APP_NAME" \
+              --yaml .render/mosquitto.containerapp.yaml \
+              --environment "$ACA_ENV"
           fi
+
+      - name: Final status and recent logs
+        run: |
+          az containerapp show -g "$RG" -n "$APP_NAME" \
+            --query "{state:properties.provisioningState,latestRev:properties.latestRevisionName}" -o table
+          az containerapp logs show -g "$RG" -n "$APP_NAME" --tail 80 || true
