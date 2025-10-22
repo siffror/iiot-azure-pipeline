@@ -1,5 +1,5 @@
 type: Microsoft.App/containerApps
-apiVersion: 2024-03-01
+apiVersion: "2024-03-01"
 name: mosquitto
 location: North Europe
 properties:
