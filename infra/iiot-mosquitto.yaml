@@ -19,33 +19,24 @@ properties:
         env:
           - name: TZ
             value: UTC
-          - name: MOSQUITTO_LOG_DEST
-            value: stdout
-        args:
-          - -c
-          - /mosquitto/config/mosquitto.conf
+        args: ["-c", "/mosquitto/config/mosquitto.conf", "-v"]
         volumeMounts:
           - volumeName: mosquitto-data
-            mountPath: /mosquitto/data
-          - volumeName: mosquitto-conf
             mountPath: /mosquitto/config
-            readOnly: true
+            subPath: mosquitto/config
+          - volumeName: mosquitto-data
+            mountPath: /mosquitto/data
         probes:
-          - type: liveness
-            tcpSocket:
-              port: 1883
+          - type: Liveness
+            tcpSocket: { port: 1883 }
             initialDelaySeconds: 10
             periodSeconds: 10
             failureThreshold: 3
-          - type: readiness
-            tcpSocket:
-              port: 1883
+          - type: Readiness
+            tcpSocket: { port: 1883 }
             initialDelaySeconds: 5
             periodSeconds: 10
     volumes:
       - name: mosquitto-data
         storageType: AzureFile
         storageName: mosquitto-data-storage
-      - name: mosquitto-conf
-        storageType: Secret
-        secretName: mosquitto-conf
