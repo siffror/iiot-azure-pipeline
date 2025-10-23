@@ -24,15 +24,42 @@ jobs:
           tenant-id: ${{ secrets.IIOTFFTSERVICE_AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.IIOTFFTSERVICE_AZURE_SUBSCRIPTION_ID }}
 
-      # Deploy via YAML och injicera hemlighet direkt (ingen CLI, ingen build)
+      # Prepare a copy of the manifest without a static revision suffix to avoid collisions
+      - name: Prepare YAML for deploy (remove static revisionSuffix)
+        run: |
+          set -e
+          SRC=infra/grafana.yaml
+          OUT=infra/grafana-auto.yaml
+          cp "$SRC" "$OUT"
+          # Remove any line that contains revisionSuffix, revision-suffix or revisionsuffix (case-insensitive)
+          # This is intentionally conservative: it deletes the whole line so the rest of the manifest remains unchanged.
+          sed -E '/revision[-_]?suffix/Id' "$OUT" > "${OUT}.tmp" && mv "${OUT}.tmp" "$OUT"
+          echo "Prepared $OUT (removed static revision suffix if present)"
+      # Alternative (optional): inject an explicit unique suffix using github.run_id (requires yq)
+      # - name: Install yq (optional)
+      #   run: |
+      #     sudo apt-get update && sudo apt-get install -y jq
+      #     YQ_VERSION=v4.30.8
+      #     wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64
+      #     chmod +x /usr/local/bin/yq
+      # - name: Inject dynamic revisionSuffix into manifest (optional)
+      #   env:
+      #     REV_SUFFIX: run-${{ github.run_id }}
+      #   run: |
+      #     cp infra/grafana.yaml infra/grafana-auto.yaml
+      #     # Use yq to set .template.revisionSuffix (safe when template exists)
+      #     yq -i '.template.revisionSuffix = strenv(REV_SUFFIX)' infra/grafana-auto.yaml
+      #     echo "Injected revisionSuffix=${REV_SUFFIX} into infra/grafana-auto.yaml"
+
+      # Deploy via YAML and inject secret (no CLI build)
       - name: Deploy Grafana (YAML only)
         uses: azure/container-apps-deploy-action@v2
         with:
           resourceGroup: iiot-poc-rg
           containerAppName: grafana
           environment: iiot-env-public
-          yamlConfigPath: infra/grafana.yaml
-          secrets: |                                  # ✅ skapar/uppdaterar app-secret
+          yamlConfigPath: infra/grafana-auto.yaml
+          secrets: |
             grafana-admin-password=${{ secrets.GRAFANA_ADMIN_PASSWORD }}
           disableTelemetry: false
 
