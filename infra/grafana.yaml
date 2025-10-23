@@ -20,8 +20,9 @@ properties:
     revisionSuffix: "vol-002"
     containers:
       - name: grafana
-        image: grafana/grafana:10.4.2
+        image: grafana/grafana:10.4.2   # Public Docker Hub (ingen ACR-pull krävs)
         env:
+          # === Grafana admin/auth (oförändrat enligt din setup) ===
           - name: GF_SECURITY_ADMIN_USER
             value: admin
           - name: GF_SECURITY_ADMIN_PASSWORD
@@ -34,18 +35,45 @@ properties:
             value: "false"
           - name: GF_SERVER_HTTP_PORT
             value: "3000"
+
+          # === InfluxDB datasource (VIKTIGT: ska matcha Influx/Telegraf) ===
+          - name: INFLUX_URL
+            value: http://influxdb:8086
+          - name: INFLUX_ORG
+            value: iiot-org          # <— matchar din Influx UI
+          - name: INFLUX_BUCKET
+            value: iiot              # <— matchar din Influx UI
+          - name: INFLUX_TOKEN
+            secretRef: grafana-influx-token   # <— scoped read/write token, EJ admin-token
+
+        # Hälsoprober så revisionen inte fastnar i "Activating"
+        probes:
+          - type: liveness
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          - type: readiness
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
         volumeMounts:
           - volumeName: grafana-data
             mountPath: /var/lib/grafana
           - volumeName: grafana-provisioning
             mountPath: /etc/grafana/provisioning
+
     volumes:
       - name: grafana-data
         storageType: AzureFile
-        storageName: grafana-storage                # välj din faktiska storage
+        storageName: grafana-storage                # ❗Bekräfta att detta namn finns i Managed Environment > Storages
       - name: grafana-provisioning
         storageType: AzureFile
-        storageName: grafana-provisioning-storage   # välj din faktiska storage
+        storageName: grafana-provisioning-storage   # ❗Bekräfta även detta namn
 
     scale:
       minReplicas: 1
